@@ -1,0 +1,492 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>V75 Asian Bot - SMA5 + Momentum3 Out-of-Sample Demo</title>
+<style>
+body{font-family:Arial,sans-serif;margin:24px;background:#f5f6f8;color:#111827}
+.card{max-width:1180px;margin:auto;background:#fff;padding:24px;border-radius:14px;box-shadow:0 4px 18px rgba(0,0,0,.08)}
+h1{margin:0 0 6px}.sub{color:#4b5563}
+fieldset{border:1px solid #e5e7eb;border-radius:12px;padding:14px;margin-top:16px}
+legend{font-weight:700;padding:0 6px}
+.grid2{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+label{display:block;margin-top:8px;font-weight:600}
+input{width:100%;box-sizing:border-box;padding:10px;margin-top:6px;border:1px solid #cbd5e1;border-radius:8px}
+button{margin-top:16px;margin-right:8px;padding:11px 17px;border:0;border-radius:8px;background:#2563eb;color:#fff;cursor:pointer}
+button.stop{background:#dc2626}button.csv{background:#475569}
+button:disabled{opacity:.5;cursor:not-allowed}
+.grid{display:grid;grid-template-columns:repeat(8,1fr);gap:10px;margin-top:18px}
+.metric{background:#f8fafc;padding:12px;border-radius:10px}.metric b{display:block;margin-top:4px;font-size:17px}
+.warn{margin-top:16px;padding:12px;border:1px solid #fdba74;background:#fff7ed;border-radius:10px}
+.good{margin-top:16px;padding:12px;border:1px solid #86efac;background:#f0fdf4;border-radius:10px}
+#log{margin-top:18px;background:#0f172a;color:#e5e7eb;padding:14px;min-height:220px;max-height:360px;white-space:pre-wrap;font-family:Consolas,monospace;font-size:12px;overflow:auto;border-radius:10px}
+table{width:100%;border-collapse:collapse;margin-top:18px;font-size:12px}
+th,td{padding:7px;border-bottom:1px solid #e5e7eb;text-align:left;white-space:nowrap}
+.small{font-size:12px;color:#6b7280;margin-top:10px}
+</style>
+</head>
+<body>
+<div class="card">
+<h1>V75 (1s) Asian Bot — SMA(5) + Negative 3-Tick Momentum</h1>
+<p class="sub">Fresh-data Demo experiment. Entry requires: current tick below the SMA of the previous 5 ticks <strong>and</strong> negative 3-tick momentum. DOWN first → wait 1 second → UP. Flat $0.35 per contract.</p>
+
+<fieldset>
+<legend>Deriv Demo connection</legend>
+<div class="grid2">
+<label>Deriv App ID<input id="appId" placeholder="Paste your V75 Asian Bot App ID"></label>
+<label>Demo Options Account ID<input id="accountId" value="DOT94618672"></label>
+<label>PAT<input id="pat" type="password" autocomplete="off" placeholder="Paste PAT locally"></label>
+</div>
+</fieldset>
+
+<fieldset>
+<legend>Experiment settings</legend>
+<div class="grid2">
+<label>Stake (USD)<input id="stake" type="number" value="0.35" min="0.35" max="0.35" step="0.01"></label>
+<label>Expiry (ticks)<input id="duration" type="number" value="5" min="1" max="10" step="1"></label>
+<label>Delay (milliseconds)<input id="delay" type="number" value="1000" min="1000" max="1000" step="100"></label>
+<label>Target pairs<input id="pairs" type="number" value="100" min="1" max="100" step="1"></label>
+<label>Minimum SMA distance<input id="minDist" type="number" value="0" min="0" step="0.01"></label>
+<label>Emergency session-loss stop (USD)<input id="lossLimit" type="number" value="10" min="0.70" max="1000" step="0.70"></label>
+</div>
+</fieldset>
+
+<button id="start">START 100-PAIR TEST</button>
+<button id="stop" class="stop" disabled>STOP AFTER CURRENT PAIR</button>
+<button id="csv" class="csv" disabled>DOWNLOAD CSV</button>
+
+<div class="warn"><strong>Safety:</strong> Demo DOT account only. Exactly two demo purchases per completed pair. No Martingale. No real-account endpoint. The bot stops at the pair limit or the session-loss limit.</div>
+<div class="good"><strong>Test condition:</strong> Current tick &lt; SMA(5) calculated from the previous five ticks AND 3-tick momentum &lt; 0. This test does not use the current tick inside the SMA.</div>
+
+<div class="grid">
+<div class="metric">Status<b id="status">READY</b></div>
+<div class="metric">Pairs<b id="pair">0 / 100</b></div>
+<div class="metric">Signals<b id="signals">0</b></div>
+<div class="metric">Both win<b id="ww">0</b></div>
+<div class="metric">Both loss<b id="ll">0</b></div>
+<div class="metric">Mixed<b id="mixed">0</b></div>
+<div class="metric">Session P/L<b id="pnl">$0.00</b></div>
+<div class="metric">Max DD<b id="dd">$0.00</b></div>
+</div>
+
+<table>
+<thead>
+<tr>
+<th>#</th><th>Time</th><th>Tick</th><th>Prev SMA5</th><th>Distance</th><th>Mom3</th><th>DOWN</th><th>UP</th><th>Outcome</th><th>Pair P/L</th>
+</tr>
+</thead>
+<tbody id="rows"></tbody>
+</table>
+
+<div id="log"></div>
+<p class="small">CSV includes signal features, contract outcomes, pair P/L, cumulative P/L and drawdown. A fresh positive sample is not treated as proof of a persistent edge.</p>
+</div>
+
+<script>
+(() => {
+const API='https://api.derivws.com';
+const SYMBOL='1HZ75V';
+
+let ws=null, reqId=40000, prices=[];
+let pending=new Map();
+let running=false, stopAfterPair=false;
+let pairNo=0, signalCount=0;
+let sessionPnl=0, equityPeak=0, maxDrawdown=0;
+let bothWin=0, bothLoss=0, mixed=0;
+let records=[];
+let activePair=null;
+
+const $=id=>document.getElementById(id);
+
+function log(s){
+  $('log').textContent += `[${new Date().toLocaleTimeString()}] ${s}\n`;
+  $('log').scrollTop=$('log').scrollHeight;
+}
+function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
+function money(v){return `${v>=0?'+$':'-$'}${Math.abs(v).toFixed(2)}`;}
+
+function previousSma5(){
+  if(prices.length<6)return null;
+  const a=prices.slice(-6,-1); // t-5 ... t-1
+  return a.reduce((x,y)=>x+y,0)/5;
+}
+function momentum3(){
+  if(prices.length<4)return null;
+  return prices.at(-1)-prices.at(-4);
+}
+function stdev20(){
+  if(prices.length<20)return null;
+  const a=prices.slice(-20);
+  const m=a.reduce((x,y)=>x+y,0)/a.length;
+  return Math.sqrt(a.reduce((s,x)=>s+(x-m)**2,0)/a.length);
+}
+
+function send(payload){
+  const id=reqId++;
+  return new Promise((resolve,reject)=>{
+    const timer=setTimeout(()=>{
+      pending.delete(id);
+      reject(new Error('Request timed out'));
+    },15000);
+    pending.set(id,{resolve,reject,timer});
+    ws.send(JSON.stringify({...payload,req_id:id}));
+  });
+}
+
+async function getOtp(appId,accountId,pat){
+  const r=await fetch(
+    `${API}/trading/v1/options/accounts/${encodeURIComponent(accountId)}/otp`,
+    {
+      method:'POST',
+      headers:{
+        'Authorization':`Bearer ${pat}`,
+        'Deriv-App-ID':appId
+      }
+    }
+  );
+  if(!r.ok)throw new Error(`OTP HTTP ${r.status}`);
+  const d=await r.json();
+  if(!d?.data?.url)throw new Error('No WebSocket URL returned');
+  if(!String(d.data.url).includes('/options/ws/demo')){
+    throw new Error('Safety stop: returned endpoint is not Demo');
+  }
+  return d.data.url;
+}
+
+async function connect(){
+  const app=$('appId').value.trim();
+  const acct=$('accountId').value.trim();
+  const pat=$('pat').value.trim();
+
+  if(!app||!acct||!pat)throw new Error('Enter App ID, Demo account ID and PAT');
+  if(!/^DOT/i.test(acct))throw new Error('Safety stop: use a Demo DOT Options account');
+
+  const url=await getOtp(app,acct,pat);
+  ws=new WebSocket(url);
+
+  await new Promise((resolve,reject)=>{
+    const timer=setTimeout(()=>reject(new Error('WebSocket open timeout')),15000);
+    ws.addEventListener('open',()=>{clearTimeout(timer);resolve();},{once:true});
+    ws.addEventListener('error',()=>{clearTimeout(timer);reject(new Error('WebSocket error'));},{once:true});
+  });
+
+  $('status').textContent='CONNECTED';
+  log('Authenticated Demo WebSocket connected.');
+
+  ws.onmessage=event=>{
+    let m;
+    try{m=JSON.parse(event.data)}catch{return;}
+
+    if(m.req_id && pending.has(m.req_id)){
+      const w=pending.get(m.req_id);
+      pending.delete(m.req_id);
+      clearTimeout(w.timer);
+      if(m.error)w.reject(new Error(`${m.error.code||'API'}: ${m.error.message||''}`));
+      else w.resolve(m);
+      return;
+    }
+
+    if(m.error){
+      log(`API error: ${m.error.code||''} ${m.error.message||''}`);
+      return;
+    }
+
+    if(m.msg_type==='tick'){
+      const q=Number(m.tick.quote);
+      if(!Number.isFinite(q))return;
+      prices.push(q);
+      if(prices.length>1000)prices.shift();
+
+      $('tick').textContent=q.toFixed(2);
+      const s=previousSma5();
+      $('sma').textContent=s===null?'waiting...':s.toFixed(2);
+    }
+
+    if(m.msg_type==='proposal_open_contract'){
+      handleContractUpdate(m.proposal_open_contract||{});
+    }
+  };
+
+  ws.send(JSON.stringify({ticks:SYMBOL,subscribe:1,req_id:reqId++}));
+  log('Subscribed to V75 (1s) tick stream.');
+}
+
+function handleContractUpdate(c){
+  if(!activePair)return;
+  const id=String(c.contract_id||'');
+  const rec=activePair.contracts[id];
+  if(!rec)return;
+
+  rec.pnl=Number(c.profit||0);
+  rec.status=c.status||'open';
+  rec.done=Boolean(c.is_sold)||rec.status==='won'||rec.status==='lost';
+
+  if(rec.done&&!rec.counted){
+    rec.counted=true;
+    if(Object.values(activePair.contracts).every(x=>x.done))finishPair();
+  }
+}
+
+async function buy(type,side){
+  const stake=Number($('stake').value);
+  const duration=Number($('duration').value);
+
+  const pr=await send({
+    proposal:1,
+    amount:stake,
+    basis:'stake',
+    contract_type:type,
+    currency:'USD',
+    duration,
+    duration_unit:'t',
+    underlying_symbol:SYMBOL
+  });
+
+  const p=pr.proposal;
+  const ask=Number(p.ask_price);
+  if(!Number.isFinite(ask)||ask<=0)throw new Error(`Invalid ${side} ask price`);
+
+  const b=await send({buy:p.id,price:ask});
+  const id=String(b.buy.contract_id);
+
+  activePair.contracts[id]={
+    id,side,ask,pnl:0,status:'open',done:false,counted:false
+  };
+
+  log(`${side} purchased: ${id} at $${ask.toFixed(2)}`);
+
+  ws.send(JSON.stringify({
+    proposal_open_contract:1,
+    contract_id:Number(id),
+    subscribe:1,
+    req_id:reqId++
+  }));
+}
+
+async function runPair(){
+  if(!running||stopAfterPair||activePair)return;
+  if(prices.length<6){setTimeout(runPair,150);return;}
+
+  const tick=prices.at(-1);
+  const sma=previousSma5();
+  const mom=momentum3();
+  const dist=Math.abs(tick-sma);
+  const minDist=Number($('minDist').value);
+
+  // Required edge hypothesis:
+  // current tick below SMA of the previous 5 ticks AND 3-tick momentum negative.
+  if(!(tick<sma && mom<0 && dist>=minDist)){
+    setTimeout(runPair,120);
+    return;
+  }
+
+  signalCount++;
+  $('signals').textContent=String(signalCount);
+
+  pairNo++;
+  $('pair').textContent=`${pairNo} / ${Number($('pairs').value)}`;
+
+  activePair={
+    signal:'DOWN → UP',
+    features:{tick,sma,distance:dist,momentum3:mom,stdev20:stdev20()},
+    contracts:{},
+    finished:false
+  };
+
+  log(`PAIR ${pairNo}: signal confirmed | tick=${tick.toFixed(2)} < prev-SMA5=${sma.toFixed(2)} | mom3=${mom.toFixed(2)} | dist=${dist.toFixed(2)}`);
+
+  $('status').textContent='BUYING DOWN...';
+  await buy('ASIAND','DOWN');
+
+  if(!running||stopAfterPair)return;
+
+  await sleep(Number($('delay').value));
+
+  if(!activePair)return;
+
+  $('status').textContent='BUYING UP...';
+  await buy('ASIANU','UP');
+
+  $('status').textContent='MONITORING BOTH';
+}
+
+function finishPair(){
+  if(!activePair||activePair.finished)return;
+  activePair.finished=true;
+
+  const vals=Object.values(activePair.contracts);
+  const down=vals.find(x=>x.side==='DOWN');
+  const up=vals.find(x=>x.side==='UP');
+
+  if(!down||!up){
+    running=false;
+    $('status').textContent='FAILED';
+    $('start').disabled=false;
+    $('stop').disabled=true;
+    log('Safety stop: pair finished without both contracts.');
+    return;
+  }
+
+  const pairPnl=down.pnl+up.pnl;
+  sessionPnl+=pairPnl;
+  equityPeak=Math.max(equityPeak,sessionPnl);
+  maxDrawdown=Math.max(maxDrawdown,equityPeak-sessionPnl);
+
+  let outcome='MIXED';
+  if(down.pnl>0&&up.pnl>0){bothWin++;outcome='BOTH WIN';}
+  else if(down.pnl<=0&&up.pnl<=0){bothLoss++;outcome='BOTH LOSS';}
+  else mixed++;
+
+  const f=activePair.features;
+  const rec={
+    pair:pairNo,
+    timestamp:new Date().toISOString(),
+    signal:activePair.signal,
+    tick:f.tick,
+    sma_previous5:f.sma,
+    distance:f.distance,
+    momentum3:f.momentum3,
+    stdev20:f.stdev20,
+    down_status:down.status,
+    down_pnl:down.pnl,
+    up_status:up.status,
+    up_pnl:up.pnl,
+    outcome,
+    pair_pnl:pairPnl,
+    cumulative_pnl:sessionPnl,
+    max_drawdown:maxDrawdown
+  };
+
+  records.push(rec);
+
+  const tr=document.createElement('tr');
+  tr.innerHTML=`
+  <td>${rec.pair}</td>
+  <td>${new Date(rec.timestamp).toLocaleTimeString()}</td>
+  <td>${rec.tick.toFixed(2)}</td>
+  <td>${rec.sma_previous5.toFixed(2)}</td>
+  <td>${rec.distance.toFixed(2)}</td>
+  <td>${rec.momentum3.toFixed(2)}</td>
+  <td>${rec.down_status.toUpperCase()} ${money(rec.down_pnl)}</td>
+  <td>${rec.up_status.toUpperCase()} ${money(rec.up_pnl)}</td>
+  <td>${rec.outcome}</td>
+  <td>${money(rec.pair_pnl)}</td>`;
+  $('rows').appendChild(tr);
+
+  $('ww').textContent=String(bothWin);
+  $('ll').textContent=String(bothLoss);
+  $('mixed').textContent=String(mixed);
+  $('pnl').textContent=money(sessionPnl);
+  $('dd').textContent=`$${maxDrawdown.toFixed(2)}`;
+
+  log(`PAIR ${pairNo} COMPLETE: ${outcome} | Pair ${money(pairPnl)} | Session ${money(sessionPnl)} | Max DD $${maxDrawdown.toFixed(2)}`);
+
+  activePair=null;
+
+  const limit=Number($('pairs').value);
+  const lossLimit=Number($('lossLimit').value);
+
+  if(stopAfterPair||pairNo>=limit||sessionPnl<=-Math.abs(lossLimit)){
+    running=false;
+    $('start').disabled=false;
+    $('stop').disabled=true;
+    $('csv').disabled=false;
+    $('status').textContent=sessionPnl<=-Math.abs(lossLimit)?'LOSS STOP':'COMPLETE';
+    log(`TEST COMPLETE: ${pairNo} pairs | WW=${bothWin} | Mixed=${mixed} | LL=${bothLoss} | Total=${money(sessionPnl)}`);
+    return;
+  }
+
+  setTimeout(runPair,300);
+}
+
+function downloadCsv(){
+  if(!records.length)return;
+
+  const fields=[
+    'pair','timestamp','signal','tick','sma_previous5','distance','momentum3','stdev20',
+    'down_status','down_pnl','up_status','up_pnl','outcome','pair_pnl',
+    'cumulative_pnl','max_drawdown'
+  ];
+
+  const lines=[fields.join(',')];
+  for(const r of records){
+    lines.push(fields.map(f=>JSON.stringify(r[f]??'')).join(','));
+  }
+
+  const blob=new Blob([lines.join('\n')],{type:'text/csv;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;
+  a.download='v75_downup_sma5_momentum3_100_pair_results.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+$('start').onclick=async()=>{
+  if(running)return;
+
+  if(Number($('stake').value)!==0.35){
+    log('Safety stop: stake must be exactly $0.35.');return;
+  }
+  if(Number($('delay').value)!==1000){
+    log('Safety stop: delay must be exactly 1000 ms.');return;
+  }
+
+  running=true;
+  stopAfterPair=false;
+  pairNo=0;
+  signalCount=0;
+  sessionPnl=0;
+  equityPeak=0;
+  maxDrawdown=0;
+  bothWin=0;
+  bothLoss=0;
+  mixed=0;
+  records=[];
+  prices=[];
+  activePair=null;
+
+  $('rows').innerHTML='';
+  $('signals').textContent='0';
+  $('pair').textContent=`0 / ${$('pairs').value}`;
+  $('ww').textContent='0';
+  $('ll').textContent='0';
+  $('mixed').textContent='0';
+  $('pnl').textContent='$0.00';
+  $('dd').textContent='$0.00';
+  $('csv').disabled=true;
+  $('start').disabled=true;
+  $('stop').disabled=false;
+  $('status').textContent='CONNECTING...';
+
+  try{
+    await connect();
+
+    const deadline=Date.now()+10000;
+    while(prices.length<6&&Date.now()<deadline)await sleep(100);
+
+    if(prices.length<6)throw new Error('Timed out waiting for six V75 ticks.');
+
+    $('status').textContent='RUNNING';
+    await runPair();
+  }catch(e){
+    running=false;
+    $('start').disabled=false;
+    $('stop').disabled=true;
+    $('status').textContent='FAILED';
+    log(`FAILED: ${e.message}`);
+  }
+};
+
+$('stop').onclick=()=>{
+  stopAfterPair=true;
+  $('stop').disabled=true;
+  log('STOP requested. Current pair will finish; no new pair will start.');
+};
+
+$('csv').onclick=downloadCsv;
+})();
+</script>
+</body>
+</html>
