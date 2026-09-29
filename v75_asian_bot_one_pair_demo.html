@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>V75 Asian Bot - One Pair Demo</title>
+<style>
+body{font-family:Arial,sans-serif;margin:24px;background:#f5f6f8;color:#111827}
+.card{max-width:1000px;margin:auto;background:#fff;padding:24px;border-radius:14px;box-shadow:0 4px 18px rgba(0,0,0,.08)}
+h1{margin:0 0 6px}.sub{color:#4b5563}
+label{display:block;margin-top:13px;font-weight:600}
+input{width:100%;box-sizing:border-box;padding:10px;margin-top:6px;border:1px solid #cbd5e1;border-radius:8px}
+button{margin-top:16px;padding:11px 17px;border:0;border-radius:8px;background:#2563eb;color:white;cursor:pointer}
+button:disabled{opacity:.5;cursor:not-allowed}
+.grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-top:18px}
+.metric{background:#f8fafc;padding:13px;border-radius:10px}.metric b{display:block;margin-top:4px;font-size:18px}
+.warn{margin-top:16px;padding:12px;border:1px solid #fdba74;background:#fff7ed;border-radius:10px}
+#log{margin-top:18px;background:#0f172a;color:#e5e7eb;padding:14px;border-radius:10px;min-height:300px;white-space:pre-wrap;font-family:Consolas,monospace;font-size:12px;overflow:auto}
+table{width:100%;border-collapse:collapse;margin-top:18px}th,td{padding:9px;border-bottom:1px solid #e5e7eb;text-align:left}
+</style>
+</head>
+<body>
+<div class="card">
+<h1>V75 Asian Bot — One Pair Demo</h1>
+<p class="sub">Exactly one pair: ASIANU first, wait 1 second, ASIAND second. Flat $0.35. No repeat. Demo DOT account only.</p>
+
+<label>Deriv App ID<input id="appId" placeholder="Your App ID"></label>
+<label>Demo Options Account ID<input id="accountId" value="DOT94618672"></label>
+<label>PAT<input id="pat" type="password" autocomplete="off" placeholder="Enter PAT locally"></label>
+<label>Stake (USD)<input id="stake" type="number" value="0.35" min="0.35" max="0.35" step="0.01"></label>
+<label>Expiry (ticks)<input id="duration" type="number" value="5" min="1" max="10" step="1"></label>
+<label>Delay (milliseconds)<input id="delay" type="number" value="1000" min="1000" max="1000" step="100"></label>
+
+<button id="run">Run ONE UP→DOWN Demo Pair</button>
+
+<div class="warn">
+<strong>Safety:</strong> This page accepts only a Demo DOT account, uses exactly two buy operations,
+and has no Martingale or automatic restart. It will place two demo contracts when you click the button.
+</div>
+
+<div class="grid">
+<div class="metric">Connection<b id="conn">—</b></div>
+<div class="metric">First<b id="first">—</b></div>
+<div class="metric">Second<b id="second">—</b></div>
+<div class="metric">Pair P/L<b id="pnl">$0.00</b></div>
+<div class="metric">Status<b id="status">READY</b></div>
+</div>
+
+<table>
+<thead><tr><th>Side</th><th>Contract</th><th>Buy</th><th>Status</th><th>P/L</th></tr></thead>
+<tbody id="rows"></tbody>
+</table>
+
+<div id="log"></div>
+</div>
+
+<script>
+(() => {
+const API='https://api.derivws.com', SYMBOL='1HZ75V';
+let ws=null, reqId=2000, contracts={}, pairPnl=0, runStarted=false;
+
+const $=id=>document.getElementById(id);
+function log(s){$('log').textContent += '['+new Date().toLocaleTimeString()+'] '+s+'\\n';$('log').scrollTop=$('log').scrollHeight;}
+function request(payload){
+  const id=reqId++;
+  return new Promise((resolve,reject)=>{
+    const t=setTimeout(()=>{ws.removeEventListener('message',handler);reject(new Error('Request timeout'));},15000);
+    function handler(e){
+      let d; try{d=JSON.parse(e.data)}catch{return}
+      if(d.req_id!==id)return;
+      ws.removeEventListener('message',handler);clearTimeout(t);
+      if(d.error)reject(new Error(`${d.error.code||'API'}: ${d.error.message||''}`));
+      else resolve(d);
+    }
+    ws.addEventListener('message',handler);
+    ws.send(JSON.stringify({...payload,req_id:id}));
+  });
+}
+async function getOtp(app,acct,pat){
+  const r=await fetch(`${API}/trading/v1/options/accounts/${encodeURIComponent(acct)}/otp`,{
+    method:'POST',
+    headers:{'Authorization':`Bearer ${pat}`,'Deriv-App-ID':app}
+  });
+  if(!r.ok)throw new Error(`OTP HTTP ${r.status}`);
+  const d=await r.json();
+  if(!d?.data?.url)throw new Error('No WebSocket URL returned');
+  if(!d.data.url.includes('/options/ws/demo'))throw new Error('Safety stop: not a Demo endpoint');
+  return d.data.url;
+}
+async function connect(){
+  const app=$('appId').value.trim(), acct=$('accountId').value.trim(), pat=$('pat').value.trim();
+  if(!app||!acct||!pat)throw new Error('Enter App ID, Demo account ID and PAT');
+  if(!/^DOT/i.test(acct))throw new Error('Safety stop: Demo account must begin with DOT');
+
+  const url=await getOtp(app,acct,pat);
+  ws=new WebSocket(url);
+  await new Promise((resolve,reject)=>{
+    const t=setTimeout(()=>reject(new Error('WebSocket open timeout')),15000);
+    ws.onopen=()=>{clearTimeout(t);resolve()};
+    ws.onerror=()=>{clearTimeout(t);reject(new Error('WebSocket error'))};
+  });
+
+  $('conn').textContent='CONNECTED';
+  log('Authenticated Demo WebSocket connected.');
+
+  ws.onmessage=e=>{
+    let d;try{d=JSON.parse(e.data)}catch{return}
+    if(d.error){log(`API error: ${d.error.code||''} ${d.error.message||''}`);return}
+    if(d.msg_type==='tick') $('status').textContent='LIVE';
+    if(d.msg_type==='proposal_open_contract'){
+      const c=d.proposal_open_contract||{}, id=String(c.contract_id||'');
+      const rec=contracts[id];
+      if(!rec)return;
+      rec.pnl=Number(c.profit||0); rec.status=c.status||'open';
+      rec.sold=Boolean(c.is_sold)||rec.status==='won'||rec.status==='lost';
+      if(rec.sold&&!rec.done){
+        rec.done=true;
+        pairPnl += rec.pnl;
+        $('pnl').textContent=(pairPnl>=0?'+$':'-$')+Math.abs(pairPnl).toFixed(2);
+        const row=document.querySelector(`tr[data-id="${id}"]`);
+        if(row) row.children[3].textContent=rec.status.toUpperCase();
+        if(row) row.children[4].textContent=(rec.pnl>=0?'+$':'-$')+Math.abs(rec.pnl).toFixed(2);
+        log(`${rec.side} settled: ${rec.status}, P/L ${rec.pnl>=0?'+':''}$${rec.pnl.toFixed(2)}`);
+        const allDone=Object.values(contracts).length===2 && Object.values(contracts).every(x=>x.done);
+        if(allDone){
+          $('status').textContent='PAIR COMPLETE';
+          log(`PAIR COMPLETE: combined P/L ${pairPnl>=0?'+':''}$${pairPnl.toFixed(2)}.`);
+        }
+      }
+    }
+  };
+}
+function addRow(side,id,buyPrice){
+  const tr=document.createElement('tr');tr.dataset.id=id;
+  tr.innerHTML=`<td>${side}</td><td>${id}</td><td>$${buyPrice.toFixed(2)}</td><td>OPEN</td><td>—</td>`;
+  $('rows').appendChild(tr);
+}
+async function buy(contractType,side){
+  const stake=Number($('stake').value), duration=Number($('duration').value);
+  const pr=await request({
+    proposal:1,amount:stake,basis:'stake',contract_type:contractType,
+    currency:'USD',duration,duration_unit:'t',underlying_symbol:SYMBOL
+  });
+  const p=pr.proposal, ask=Number(p.ask_price);
+  const b=await request({buy:p.id,price:ask});
+  const id=String(b.buy.contract_id);
+  contracts[id]={side,id,pnl:0,status:'open',done:false};
+  addRow(side,id,ask);
+  $('first').textContent=side==='UP'?'PURCHASED':'WAITING';
+  $('second').textContent=side==='DOWN'?'PURCHASED':'WAITING';
+  log(`${side}: purchased contract ${id} at $${ask.toFixed(2)}.`);
+  ws.send(JSON.stringify({proposal_open_contract:1,contract_id:Number(id),subscribe:1,req_id:reqId++}));
+}
+$('run').onclick=async()=>{
+  if(runStarted){log('This page allows one pair only.');return}
+  if(Number($('stake').value)!==0.35){log('Safety stop: stake must be $0.35.');return}
+  if(Number($('delay').value)!==1000){log('Safety stop: delay must be 1000 ms.');return}
+  runStarted=true;$('run').disabled=true;$('status').textContent='AUTHENTICATING...';
+  try{
+    await connect();
+    $('status').textContent='BUYING UP...';
+    await buy('ASIANU','UP');
+    await new Promise(r=>setTimeout(r,1000));
+    $('status').textContent='BUYING DOWN...';
+    await buy('ASIAND','DOWN');
+    $('status').textContent='MONITORING';
+    log('Both contracts purchased. Waiting for settlement.');
+  }catch(e){
+    $('status').textContent='FAILED';log('PAIR TEST FAILED: '+e.message);
+  }
+};
+})();
+</script>
+</body>
+</html>
