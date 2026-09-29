@@ -1,0 +1,584 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Deriv Asian Bot - 3 Mandatory + 1 Optional Feature</title>
+<style>
+body{font-family:Arial,sans-serif;margin:24px;background:#061a3a;color:#e6eefc}
+.card{max-width:1320px;margin:auto;background:#0b2a55;padding:24px;border-radius:14px;box-shadow:0 8px 28px rgba(0,0,0,.35);border:1px solid #17457d}
+h1{margin:0 0 6px;color:#f4f8ff}.sub{color:#bfd0ea;line-height:1.45}
+fieldset{border:1px solid #23558f;border-radius:12px;padding:14px;margin-top:16px;background:#0a2550}
+legend{font-weight:700;padding:0 6px;color:#eaf3ff}
+.grid2{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+label{display:block;margin-top:8px;font-weight:600;color:#dce8f8}
+input,select{width:100%;box-sizing:border-box;padding:10px;margin-top:6px;border:1px solid #32679f;border-radius:8px;background:#071d40;color:#f1f6ff}
+input::placeholder{color:#86a3c9}
+button{margin-top:16px;margin-right:8px;padding:11px 17px;border:0;border-radius:8px;background:#1f6feb;color:#fff;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.2)}
+button.stop{background:#dc3f4b}button.csv{background:#3c608b}
+button:disabled{opacity:.5;cursor:not-allowed}
+.grid{display:grid;grid-template-columns:repeat(8,1fr);gap:10px;margin-top:18px}
+.metric{background:#0f3569;padding:12px;border-radius:10px;border:1px solid #1c4e86}.metric b{display:block;margin-top:4px;font-size:17px;color:#fff}
+.feature-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:10px}
+.feature{border:1px solid #245a91;border-radius:10px;padding:10px;background:#0d315f}.feature .name{font-weight:700;font-size:12px;color:#dce9fb}.feature .value{font-size:13px;margin-top:6px;color:#c4d6ec}.on{font-weight:700;color:#8fd0ff}.off{color:#8ba5c7}
+.warn{margin-top:16px;padding:12px;border:1px solid #d39a46;background:#4a3517;color:#f7dfaf;border-radius:10px}
+.good{margin-top:16px;padding:12px;border:1px solid #4b9b6c;background:#123d2c;color:#bfe8cf;border-radius:10px}
+#log{margin-top:18px;background:#041329;color:#cfe0f6;padding:14px;min-height:240px;max-height:380px;white-space:pre-wrap;font-family:Consolas,monospace;font-size:12px;overflow:auto;border-radius:10px;border:1px solid #173a68}
+table{width:100%;border-collapse:collapse;margin-top:18px;font-size:11px;background:#09234a}
+th,td{padding:7px;border-bottom:1px solid #224d82;text-align:left;white-space:nowrap}th{color:#e8f1fc;background:#0d315e}td{color:#c7d8ec}
+.small{font-size:12px;color:#9fb5d2;margin-top:10px;line-height:1.4}
+@media(max-width:900px){.grid,.feature-grid{grid-template-columns:repeat(2,1fr)}.grid2,.grid3{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="card">
+<h1>Deriv Asian Bot — 3 Mandatory + 1 Optional Feature</h1>
+<p class="sub">Research build using the three mandatory conditions identified from the uploaded V75 pair data, plus <strong>one selectable optional feature</strong>. The market is selectable from symbols that Deriv reports as supporting both ASIANU and ASIAND. Flat $0.35 per contract, 5 ticks, 1-second stagger, no Martingale.</p>
+
+<fieldset>
+<legend>Deriv Demo connection</legend>
+<div class="grid2">
+<label>Deriv App ID<input id="appId" placeholder="Paste your V75 Asian Bot App ID"></label>
+<label>Demo Options Account ID<input id="accountId" value="DOT94618672"></label>
+<label>PAT<input id="pat" type="password" autocomplete="off" placeholder="Paste PAT locally"></label>
+</div>
+</fieldset>
+
+<fieldset>
+<legend>Market selection</legend>
+<div class="grid2">
+<label>Market
+<select id="marketSelect" disabled>
+  <option value="1HZ75V">Volatility 75 (1s) — 1HZ75V</option>
+</select>
+</label>
+<div>
+  <label>&nbsp;</label>
+  <button id="discover" type="button">DISCOVER ELIGIBLE MARKETS</button>
+</div>
+</div>
+<div class="small" id="marketStatus">Default market is V75 (1s). Use “Discover Eligible Markets” after entering your App ID, Demo account ID and PAT. The bot will query Deriv for symbols that support both ASIANU and ASIAND.</div>
+<p class="small"><strong>Important:</strong> The eight-feature thresholds were calibrated from V75 (1s) research. Other markets may have different price scales and volatility. Selecting another market is therefore a research test, not an assumption that the same thresholds transfer unchanged.</p>
+</fieldset>
+
+<fieldset>
+<legend>Trade & test settings</legend>
+<div class="grid3">
+<label>Stake (USD)<input id="stake" type="number" value="0.35" min="0.35" max="0.35" step="0.01"></label>
+<label>Expiry (ticks)<input id="duration" type="number" value="5" min="1" max="10" step="1"></label>
+<label>Delay (milliseconds)<input id="delay" type="number" value="1000" min="1000" max="1000" step="100"></label>
+<label>Target pairs<input id="pairs" type="number" value="100" min="1" max="100" step="1"></label>
+<label>Emergency session-loss stop (USD)<input id="lossLimit" type="number" value="10" min="0.70" max="1000" step="0.70"></label>
+<label>Optional feature
+<select id="optionalFeature">
+  <option value="none">None — mandatory 3 only</option>
+  <option value="momentum3">3-Tick Momentum &lt; 0</option>
+  <option value="distance">SMA Distance ≥ 0.60</option>
+  <option value="momentum5">5-Tick Momentum &lt; 0</option>
+  <option value="acceleration">Momentum Acceleration ≤ -0.34</option>
+  <option value="sequence">Previous Pair = BOTH LOSS</option>
+</select>
+</label>
+</div>
+<div id="optionalHelp" class="small"></div>
+<div class="grid3" style="margin-top:12px">
+<label>Money management
+<select id="mmSwitch">
+  <option value="off">OFF — flat $0.35</option>
+  <option value="on">ON — capped 1.15× progression</option>
+</select>
+</label>
+<label>Current pair stake (per leg)<input id="currentStake" type="text" value="$0.35" readonly></label>
+<label>Recovery level<input id="mmLevel" type="text" value="0 / 5" readonly></label>
+</div>
+<div class="small">When ON: after a BOTH-LOSS pair, the next pair advances through $0.40 → $0.46 → $0.53 → $0.61 → $0.70 maximum. BOTH WIN or MIXED resets to $0.35. The progression is capped and does not guarantee recovery.</div>
+</fieldset>
+
+<fieldset>
+<legend>Entry model</legend>
+<div class="grid2">
+<div>
+  <div class="feature">
+    <div class="name">MANDATORY 1 — Direction</div>
+    <div class="value">Current tick must be below the previous-5-tick SMA → DOWN first, then UP.</div>
+  </div>
+  <div class="feature" style="margin-top:10px">
+    <div class="name">MANDATORY 2 — SMA Slope</div>
+    <div class="value">SMA slope ≤ -0.20.</div>
+  </div>
+  <div class="feature" style="margin-top:10px">
+    <div class="name">MANDATORY 3 — Volatility</div>
+    <div class="value">20-tick standard deviation ≥ 1.00.</div>
+  </div>
+</div>
+<div>
+  <div class="feature">
+    <div class="name">OPTIONAL 4 — Select one</div>
+    <div class="value">Choose one of the remaining five features in Trade &amp; Test Settings. The selected feature must pass before a pair is entered. “None” disables the extra filter.</div>
+  </div>
+  <div class="small" style="margin-top:10px">
+    Remaining options: 3-tick momentum, SMA distance, 5-tick momentum, momentum acceleration, or previous-pair sequence.
+  </div>
+</div>
+</div>
+<p class="small"><strong>Research design:</strong> Entry is a clean AND rule: all three mandatory conditions must pass, plus the selected optional condition when enabled. Money management is independent of the signal logic and can be switched ON/OFF before each test. All eight feature values and money-management state are logged to CSV.</p>
+</fieldset>
+
+<button id="start">START SELECTED MARKET TEST</button>
+<button id="stop" class="stop" disabled>STOP AFTER CURRENT PAIR</button>
+<button id="csv" class="csv" disabled>DOWNLOAD CSV</button>
+
+<div class="warn"><strong>Safety:</strong> Demo DOT account only. Exactly two demo purchases per completed pair. No Martingale. The bot will reject a non-Demo DOT account, stop at the pair limit or session-loss limit, and never sends a real-account endpoint.</div>
+<div class="good"><strong>Entry logic:</strong> all three mandatory conditions must pass: DOWN → UP direction, SMA slope ≤ -0.20, and stdev20 ≥ 1.00. One optional feature may also be selected. DOWN is bought first, then UP after 1 second.</div>
+
+<div class="grid">
+<div class="metric">Status<b id="status">READY</b></div>
+<div class="metric">Pairs<b id="pair">0 / 100</b></div>
+<div class="metric">Signals<b id="signals">0</b></div>
+<div class="metric">Both win<b id="ww">0</b></div>
+<div class="metric">Both loss<b id="ll">0</b></div>
+<div class="metric">Mixed<b id="mixed">0</b></div>
+<div class="metric">Session P/L<b id="pnl">$0.00</b></div>
+<div class="metric">Max DD<b id="dd">$0.00</b></div>
+</div>
+
+<div id="featureReadout" class="small">Waiting for a valid setup…</div>
+<table>
+<thead>
+<tr>
+<th>#</th><th>Time</th><th>Market</th><th>Stake</th><th>MM</th><th>Level</th><th>Signal</th><th>Tick</th><th>Prev SMA5</th><th>Dist</th><th>Slope</th><th>Mom3</th><th>Mom5</th><th>Accel</th><th>Stdev20</th><th>Prev Seq</th><th>DOWN</th><th>UP</th><th>Outcome</th><th>Pair P/L</th>
+</tr>
+</thead>
+<tbody id="rows"></tbody>
+</table>
+
+<div id="log"></div>
+<p class="small">CSV contains all eight feature values, mandatory pass flags, selected optional feature/pass flag, money-management state/stake/level, contract outcomes, pair P/L, cumulative P/L and drawdown. A positive historical result is not treated as proof of a persistent advantage. Use fresh demo observations to validate before changing stake size.</p>
+</div>
+
+<script>
+(() => {
+const API='https://api.derivws.com';
+
+let ws=null, reqId=50000, prices=[];
+let SYMBOL='1HZ75V';
+let eligibleMarkets=[];
+let pending=new Map();
+let running=false, stopAfterPair=false;
+let pairNo=0, signalCount=0;
+let sessionPnl=0, equityPeak=0, maxDrawdown=0;
+let bothWin=0, bothLoss=0, mixed=0;
+let records=[];
+let activePair=null;
+let previousOutcome=null;
+
+// Money management: base $0.35, ~1.15x progression, capped at $0.70 per leg.
+const MM_STAKES=[0.35,0.40,0.46,0.53,0.61,0.70];
+let mmLevel=0;
+
+function mmEnabled(){ return $('mmSwitch').value==='on'; }
+function currentStake(){ return mmEnabled()?MM_STAKES[Math.min(mmLevel,MM_STAKES.length-1)]:0.35; }
+function updateMoneyManagementUI(){
+  $('currentStake').value=`$${currentStake().toFixed(2)}`;
+  $('mmLevel').value=mmEnabled()?`${mmLevel} / 5`:'OFF';
+}
+function applyMoneyManagement(outcome){
+  if(!mmEnabled()){ mmLevel=0; updateMoneyManagementUI(); return; }
+  if(outcome==='BOTH LOSS'){
+    mmLevel=Math.min(mmLevel+1,MM_STAKES.length-1);
+  }else{
+    mmLevel=0;
+  }
+  updateMoneyManagementUI();
+}
+
+const OPTIONALS={
+  none:{label:'None — mandatory 3 only',test:f=>true,description:'No fourth filter.'},
+  momentum3:{label:'3-Tick Momentum < 0',test:f=>f.mom3<0,description:'3-tick momentum must be negative.'},
+  distance:{label:'SMA Distance ≥ 0.60',test:f=>f.distance>=0.60,description:'Absolute price-to-SMA distance must be at least 0.60.'},
+  momentum5:{label:'5-Tick Momentum < 0',test:f=>f.mom5<0,description:'5-tick momentum must be negative.'},
+  acceleration:{label:'Momentum Acceleration ≤ -0.34',test:f=>f.accel<=-0.34,description:'Momentum3 - Momentum5 must be at most -0.34.'},
+  sequence:{label:'Previous Pair = BOTH LOSS',test:f=>f.prevSequence==='BOTH LOSS',description:'The previous completed pair must have been BOTH LOSS.'}
+};
+
+function updateOptionalHelp(){
+  const key=$('optionalFeature').value;
+  const o=OPTIONALS[key];
+  $('optionalHelp').innerHTML=`<strong>Optional filter:</strong> ${o.label} — ${o.description}`;
+}
+
+const $=id=>document.getElementById(id);
+function log(s){$('log').textContent += `[${new Date().toLocaleTimeString()}] ${s}\n`; $('log').scrollTop=$('log').scrollHeight;}
+function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
+function money(v){return `${v>=0?'+$':'-$'}${Math.abs(v).toFixed(2)}`;}
+
+function previousSma5(){
+  if(prices.length<6)return null;
+  const a=prices.slice(-6,-1);
+  return a.reduce((x,y)=>x+y,0)/5;
+}
+function momentum3(){
+  if(prices.length<4)return null;
+  return prices.at(-1)-prices.at(-4);
+}
+function momentum5(){
+  if(prices.length<6)return null;
+  return prices.at(-1)-prices.at(-6);
+}
+function stdev20(){
+  if(prices.length<20)return null;
+  const a=prices.slice(-20);
+  const m=a.reduce((x,y)=>x+y,0)/a.length;
+  return Math.sqrt(a.reduce((s,x)=>s+(x-m)**2,0)/a.length);
+}
+function smaSlope(){
+  if(prices.length<7)return null;
+  const cur=previousSma5();
+  const prev=prices.slice(-7,-2).reduce((x,y)=>x+y,0)/5;
+  return cur-prev;
+}
+
+function featureCalc(){
+  if(prices.length<20)return null;
+  const tick=prices.at(-1);
+  const sma=previousSma5();
+  const mom3=momentum3();
+  const mom5=momentum5();
+  const slope=smaSlope();
+  const stdev=stdev20();
+  const distance=Math.abs(tick-sma);
+  const accel=mom3-mom5;
+
+  const f={
+    tick,sma,distance,mom3,mom5,slope,stdev,accel,
+    prevSequence:previousOutcome||'NONE',
+    directionPass:tick<sma,
+    slopePass:slope<=-0.20,
+    volatilityPass:stdev>=1.00,
+    mom3Pass:mom3<0,
+    distancePass:distance>=0.60,
+    mom5Pass:mom5<0,
+    accelerationPass:accel<=-0.34,
+    sequencePass:previousOutcome==='BOTH LOSS'
+  };
+
+  f.optionalKey=$('optionalFeature').value;
+  f.optionalLabel=OPTIONALS[f.optionalKey].label;
+  f.optionalPass=OPTIONALS[f.optionalKey].test(f);
+  f.mandatoryPassCount=(f.directionPass?1:0)+(f.slopePass?1:0)+(f.volatilityPass?1:0);
+  f.entryPass=f.mandatoryPassCount===3 && f.optionalPass;
+  return f;
+}
+
+function featureText(f){
+  if(!f){$('featureReadout').textContent='Waiting for 20 ticks before calculating all features…';return;}
+  const badge=v=>v?'PASS':'FAIL';
+  $('featureReadout').innerHTML=`<strong>Live entry check:</strong> Direction ${badge(f.directionPass)} | SMA slope ${badge(f.slopePass)} | Volatility ${badge(f.volatilityPass)} | Optional ${f.optionalLabel}: ${badge(f.optionalPass)} | <strong>${f.entryPass?'ENTRY ELIGIBLE':'NO ENTRY'}</strong>`;
+}
+
+async function discoverEligibleMarkets(){
+  if(!ws) throw new Error('Connect to the Demo WebSocket first.');
+  const u = await send({active_symbols:'brief', contract_type:['ASIANU']});
+  const d = await send({active_symbols:'brief', contract_type:['ASIAND']});
+  const up = (u.active_symbols||[]).filter(x=>x && x.underlying_symbol);
+  const down = (d.active_symbols||[]).filter(x=>x && x.underlying_symbol);
+  const downSet = new Set(down.map(x=>x.underlying_symbol));
+  const all = up.filter(x=>downSet.has(x.underlying_symbol));
+
+  // Keep primarily derived/volatility-style instruments for this research model.
+  const filtered = all.filter(x=>{
+    const s = String(x.underlying_symbol||'').toUpperCase();
+    const n = String(x.underlying_symbol_name||x.display_name||'').toLowerCase();
+    const market = String(x.market||'').toLowerCase();
+    return market.includes('derived') || n.includes('volatility') || /^(1HZ|R_)/.test(s);
+  });
+
+  const unique = new Map();
+  for(const x of filtered) unique.set(x.underlying_symbol, x);
+  eligibleMarkets = [...unique.values()].sort((a,b)=>{
+    const an=String(a.underlying_symbol_name||a.underlying_symbol);
+    const bn=String(b.underlying_symbol_name||b.underlying_symbol);
+    return an.localeCompare(bn);
+  });
+
+  const sel=$('marketSelect');
+  const previous=sel.value || '1HZ75V';
+  sel.innerHTML='';
+  for(const x of eligibleMarkets){
+    const opt=document.createElement('option');
+    opt.value=x.underlying_symbol;
+    opt.textContent=`${x.underlying_symbol_name||x.underlying_symbol} — ${x.underlying_symbol}`;
+    sel.appendChild(opt);
+  }
+  if(eligibleMarkets.some(x=>x.underlying_symbol===previous)) sel.value=previous;
+  else if(eligibleMarkets.some(x=>x.underlying_symbol==='1HZ75V')) sel.value='1HZ75V';
+  else if(eligibleMarkets[0]) sel.value=eligibleMarkets[0].underlying_symbol;
+
+  sel.disabled=false;
+  SYMBOL=sel.value;
+  $('marketStatus').textContent=`Found ${eligibleMarkets.length} eligible market(s) supporting both ASIANU and ASIAND. Selected: ${marketLabel(SYMBOL)}.`;
+  log(`Eligible markets discovered: ${eligibleMarkets.length}.`);
+  log(eligibleMarkets.map(x=>`${x.underlying_symbol_name||x.underlying_symbol} [${x.underlying_symbol}]`).join(' | '));
+  return eligibleMarkets;
+}
+
+function marketLabel(symbol){
+  const x=eligibleMarkets.find(m=>m.underlying_symbol===symbol);
+  return x ? `${x.underlying_symbol_name||x.underlying_symbol} — ${x.underlying_symbol}` : symbol;
+}
+
+async function verifyAsianContracts(symbol){
+  const checks = await Promise.all([
+    send({contracts_for:symbol}),
+    send({contracts_for:symbol})
+  ]);
+  // contracts_for is identical here; proposal availability is the final practical check.
+  const available=(checks[0]?.contracts_for?.available||[]);
+  const hasDown=available.some(x=>x.contract_type==='ASIAND');
+  const hasUp=available.some(x=>x.contract_type==='ASIANU');
+  return {hasDown,hasUp};
+}
+
+function send(payload){
+  const id=reqId++;
+  return new Promise((resolve,reject)=>{
+    const timer=setTimeout(()=>{pending.delete(id);reject(new Error('Request timed out'));},15000);
+    pending.set(id,{resolve,reject,timer});
+    ws.send(JSON.stringify({...payload,req_id:id}));
+  });
+}
+
+async function getOtp(appId,accountId,pat){
+  const r=await fetch(`${API}/trading/v1/options/accounts/${encodeURIComponent(accountId)}/otp`,{
+    method:'POST',headers:{'Authorization':`Bearer ${pat}`,'Deriv-App-ID':appId}
+  });
+  if(!r.ok)throw new Error(`OTP HTTP ${r.status}`);
+  const d=await r.json();
+  if(!d?.data?.url)throw new Error('No WebSocket URL returned');
+  if(!String(d.data.url).includes('/options/ws/demo'))throw new Error('Safety stop: returned endpoint is not Demo');
+  return d.data.url;
+}
+
+async function connect(){
+  const app=$('appId').value.trim(), acct=$('accountId').value.trim(), pat=$('pat').value.trim();
+  if(!app||!acct||!pat)throw new Error('Enter App ID, Demo account ID and PAT');
+  if(!/^DOT/i.test(acct))throw new Error('Safety stop: use a Demo DOT Options account');
+
+  const url=await getOtp(app,acct,pat);
+  ws=new WebSocket(url);
+  await new Promise((resolve,reject)=>{
+    const timer=setTimeout(()=>reject(new Error('WebSocket open timeout')),15000);
+    ws.addEventListener('open',()=>{clearTimeout(timer);resolve();},{once:true});
+    ws.addEventListener('error',()=>{clearTimeout(timer);reject(new Error('WebSocket error'));},{once:true});
+  });
+
+  $('status').textContent='CONNECTED';
+  log('Authenticated Demo WebSocket connected.');
+
+  ws.onmessage=event=>{
+    let m; try{m=JSON.parse(event.data)}catch{return;}
+    if(m.req_id && pending.has(m.req_id)){
+      const w=pending.get(m.req_id); pending.delete(m.req_id); clearTimeout(w.timer);
+      if(m.error)w.reject(new Error(`${m.error.code||'API'}: ${m.error.message||''}`)); else w.resolve(m);
+      return;
+    }
+    if(m.error){log(`API error: ${m.error.code||''} ${m.error.message||''}`);return;}
+    if(m.msg_type==='tick'){
+      const q=Number(m.tick.quote); if(!Number.isFinite(q))return;
+      prices.push(q); if(prices.length>1000)prices.shift();
+      featureText(featureCalc());
+    }
+    if(m.msg_type==='proposal_open_contract')handleContractUpdate(m.proposal_open_contract||{});
+  };
+  ws.send(JSON.stringify({ticks:SYMBOL,subscribe:1,req_id:reqId++}));
+  log(`Subscribed to ${marketLabel(SYMBOL)} tick stream.`);
+}
+
+function handleContractUpdate(c){
+  if(!activePair)return;
+  const id=String(c.contract_id||''); const rec=activePair.contracts[id]; if(!rec)return;
+  rec.pnl=Number(c.profit||0); rec.status=c.status||'open'; rec.done=Boolean(c.is_sold)||rec.status==='won'||rec.status==='lost';
+  if(rec.done&&!rec.counted){
+    rec.counted=true;
+    if(Object.values(activePair.contracts).every(x=>x.done))finishPair();
+  }
+}
+
+async function buy(type,side,stakeOverride=null){
+  const stake=stakeOverride==null?currentStake():Number(stakeOverride);
+  const duration=Number($('duration').value);
+  const pr=await send({proposal:1,amount:stake,basis:'stake',contract_type:type,currency:'USD',duration,duration_unit:'t',underlying_symbol:SYMBOL});
+  const p=pr.proposal, ask=Number(p.ask_price);
+  if(!Number.isFinite(ask)||ask<=0)throw new Error(`Invalid ${side} ask price`);
+  const b=await send({buy:p.id,price:ask});
+  const id=String(b.buy.contract_id);
+  activePair.contracts[id]={id,side,ask,pnl:0,status:'open',done:false,counted:false};
+  log(`${side} purchased: ${id} at $${ask.toFixed(2)}`);
+  ws.send(JSON.stringify({proposal_open_contract:1,contract_id:Number(id),subscribe:1,req_id:reqId++}));
+}
+
+async function runPair(){
+  if(!running||stopAfterPair||activePair)return;
+  if(prices.length<20){setTimeout(runPair,150);return;}
+
+  const f=featureCalc();
+  if(!f){setTimeout(runPair,150);return;}
+
+  // All three mandatory conditions plus the selected optional feature.
+  if(!f.entryPass){setTimeout(runPair,120);return;}
+
+  signalCount++; $('signals').textContent=String(signalCount);
+  pairNo++; $('pair').textContent=`${pairNo} / ${Number($('pairs').value)}`;
+
+  const pairStake=currentStake();
+  const pairMmEnabled=mmEnabled();
+  const pairMmLevel=mmLevel;
+  activePair={signal:'DOWN → UP',features:{...f},contracts:{},finished:false,pairStake,pairMmEnabled,pairMmLevel};
+  log(`PAIR ${pairNo}: stake=$${pairStake.toFixed(2)}/leg | mandatory 3 PASS | direction=DOWN→UP | slope=${f.slope.toFixed(2)} (<= -0.20) | stdev20=${f.stdev.toFixed(2)} (>= 1.00) | optional=${f.optionalLabel} PASS | tick=${f.tick.toFixed(2)} | SMA=${f.sma.toFixed(2)} | dist=${f.distance.toFixed(2)} | mom3=${f.mom3.toFixed(2)} | mom5=${f.mom5.toFixed(2)} | accel=${f.accel.toFixed(2)} | prev=${f.prevSequence}`);
+
+  $('status').textContent='BUYING DOWN...';
+  await buy('ASIAND','DOWN',pairStake);
+  if(!running||stopAfterPair)return;
+  await sleep(Number($('delay').value));
+  if(!activePair)return;
+  $('status').textContent='BUYING UP...';
+  await buy('ASIANU','UP',pairStake);
+  $('status').textContent='MONITORING BOTH';
+}
+
+function finishPair(){
+  if(!activePair||activePair.finished)return;
+  activePair.finished=true;
+  const vals=Object.values(activePair.contracts), down=vals.find(x=>x.side==='DOWN'), up=vals.find(x=>x.side==='UP');
+  if(!down||!up){running=false;$('status').textContent='FAILED';$('start').disabled=false;$('stop').disabled=true;$('mmSwitch').disabled=false;log('Safety stop: pair finished without both contracts.');return;}
+
+  const pairPnl=down.pnl+up.pnl; sessionPnl+=pairPnl; equityPeak=Math.max(equityPeak,sessionPnl); maxDrawdown=Math.max(maxDrawdown,equityPeak-sessionPnl);
+  let outcome='MIXED';
+  if(down.pnl>0&&up.pnl>0){bothWin++;outcome='BOTH WIN';}
+  else if(down.pnl<=0&&up.pnl<=0){bothLoss++;outcome='BOTH LOSS';}
+  else mixed++;
+
+  const f=activePair.features;
+  const pairStakeForRecord=activePair.pairStake;
+  const mmOnForRecord=activePair.pairMmEnabled;
+  const mmLevelForRecord=activePair.pairMmLevel;
+  const MmEnabledForRecord=mmOnForRecord?'ON':'OFF';
+  const rec={pair:pairNo,timestamp:new Date().toISOString(),market:SYMBOL,market_name:marketLabel(SYMBOL),signal:activePair.signal,tick:f.tick,sma_previous5:f.sma,distance:f.distance,sma_slope:f.slope,momentum3:f.mom3,momentum5:f.mom5,acceleration:f.accel,stdev20:f.stdev,previous_sequence:f.prevSequence,mandatory_direction_pass:f.directionPass,mandatory_slope_pass:f.slopePass,mandatory_volatility_pass:f.volatilityPass,optional_feature:f.optionalKey,optional_feature_label:f.optionalLabel,optional_feature_pass:f.optionalPass,mandatory_pass_count:f.mandatoryPassCount,entry_eligible:f.entryPass,money_management:MmEnabledForRecord,money_management_enabled:mmOnForRecord,mm_level:mmLevelForRecord,stake_per_leg:pairStakeForRecord,down_status:down.status,down_pnl:down.pnl,up_status:up.status,up_pnl:up.pnl,outcome,pair_pnl:pairPnl,cumulative_pnl:sessionPnl,max_drawdown:maxDrawdown};
+  records.push(rec);
+  previousOutcome=outcome;
+  applyMoneyManagement(outcome);
+
+  const tr=document.createElement('tr');
+  tr.innerHTML=`<td>${rec.pair}</td><td>${new Date(rec.timestamp).toLocaleTimeString()}</td><td>${rec.market}</td><td>$${Number(rec.stake_per_leg).toFixed(2)}</td><td>${rec.money_management}</td><td>${rec.mm_level}</td><td>${rec.signal}</td><td>${rec.tick.toFixed(2)}</td><td>${rec.sma_previous5.toFixed(2)}</td><td>${rec.distance.toFixed(2)}</td><td>${rec.sma_slope.toFixed(2)}</td><td>${rec.momentum3.toFixed(2)}</td><td>${rec.momentum5.toFixed(2)}</td><td>${rec.acceleration.toFixed(2)}</td><td>${rec.stdev20.toFixed(2)}</td><td>${rec.previous_sequence}</td><td>${rec.down_status.toUpperCase()} ${money(rec.down_pnl)}</td><td>${rec.up_status.toUpperCase()} ${money(rec.up_pnl)}</td><td>${rec.outcome}</td><td>${money(rec.pair_pnl)}</td>`;
+  $('rows').appendChild(tr);
+  $('ww').textContent=String(bothWin); $('ll').textContent=String(bothLoss); $('mixed').textContent=String(mixed); $('pnl').textContent=money(sessionPnl); $('dd').textContent=`$${maxDrawdown.toFixed(2)}`;
+  log(`PAIR ${pairNo} COMPLETE: ${outcome} | Pair ${money(pairPnl)} | Session ${money(sessionPnl)} | Max DD $${maxDrawdown.toFixed(2)}`);
+  activePair=null;
+
+  const limit=Number($('pairs').value), lossLimit=Number($('lossLimit').value);
+  if(stopAfterPair||pairNo>=limit||sessionPnl<=-Math.abs(lossLimit)){
+    running=false;$('start').disabled=false;$('stop').disabled=true;$('csv').disabled=false;$('mmSwitch').disabled=false;
+    $('status').textContent=sessionPnl<=-Math.abs(lossLimit)?'LOSS STOP':'COMPLETE';
+    log(`TEST COMPLETE: ${pairNo} pairs | WW=${bothWin} | Mixed=${mixed} | LL=${bothLoss} | Total=${money(sessionPnl)}`);
+    return;
+  }
+  setTimeout(runPair,300);
+}
+
+function downloadCsv(){
+  if(!records.length)return;
+  const fields=['pair','timestamp','market','market_name','signal','tick','sma_previous5','distance','sma_slope','momentum3','momentum5','acceleration','stdev20','previous_sequence','mandatory_direction_pass','mandatory_slope_pass','mandatory_volatility_pass','optional_feature','optional_feature_label','optional_feature_pass','mandatory_pass_count','entry_eligible','money_management','money_management_enabled','mm_level','stake_per_leg','down_status','down_pnl','up_status','up_pnl','outcome','pair_pnl','cumulative_pnl','max_drawdown'];
+  const lines=[fields.join(',')]; for(const r of records)lines.push(fields.map(f=>JSON.stringify(r[f]??'')).join(','));
+  const blob=new Blob([lines.join('\n')],{type:'text/csv;charset=utf-8'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`deriv_${SYMBOL}_8feature_research_results.csv`; a.click(); URL.revokeObjectURL(url);
+}
+
+$('discover').onclick=async()=>{
+  if(running)return;
+  try{
+    $('discover').disabled=true;
+    $('status').textContent='CONNECTING...';
+    if(!ws || ws.readyState!==WebSocket.OPEN) await connect();
+    await discoverEligibleMarkets();
+    $('status').textContent='READY';
+  }catch(e){
+    $('status').textContent='FAILED';
+    log(`MARKET DISCOVERY FAILED: ${e.message}`);
+  }finally{
+    $('discover').disabled=false;
+  }
+};
+
+$('mmSwitch').onchange=()=>{
+  if(running){
+    log('Money-management switch is locked during a test. Stop the test before changing it.');
+    $('mmSwitch').value=mmEnabled()?'on':'off';
+    return;
+  }
+  if($('mmSwitch').value==='off') mmLevel=0;
+  updateMoneyManagementUI();
+  log(`Money management: ${mmEnabled()?'ON (capped 1.15x progression)':'OFF (flat $0.35)'}`);
+};
+
+$('optionalFeature').onchange=()=>{
+  updateOptionalHelp();
+  log(`Optional filter selected: ${OPTIONALS[$('optionalFeature').value].label}`);
+};
+
+$('marketSelect').onchange=()=>{
+  SYMBOL=$('marketSelect').value;
+  $('marketStatus').textContent=`Selected: ${marketLabel(SYMBOL)}. A fresh tick history will be collected when the test starts.`;
+  log(`Market selected: ${marketLabel(SYMBOL)}`);
+};
+
+$('start').onclick=async()=>{
+  if(running)return;
+  if(Number($('stake').value)!==0.35){log('Safety stop: stake must be exactly $0.35.');return;}
+  if(Number($('delay').value)!==1000){log('Safety stop: delay must be exactly 1000 ms.');return;}
+  SYMBOL=$('marketSelect').value || '1HZ75V';
+
+  mmLevel=0; updateMoneyManagementUI(); $('mmSwitch').disabled=true;
+  running=true; stopAfterPair=false; pairNo=0; signalCount=0; sessionPnl=0; equityPeak=0; maxDrawdown=0; bothWin=0; bothLoss=0; mixed=0; records=[]; prices=[]; activePair=null; previousOutcome=null;
+  updateOptionalHelp();
+  $('rows').innerHTML=''; $('signals').textContent='0'; $('pair').textContent=`0 / ${$('pairs').value}`; $('ww').textContent='0'; $('ll').textContent='0'; $('mixed').textContent='0'; $('pnl').textContent='$0.00'; $('dd').textContent='$0.00'; $('csv').disabled=true; $('start').disabled=true; $('stop').disabled=false; $('status').textContent='CONNECTING...'; $('featureReadout').textContent='Waiting for 20 ticks before calculating all features…';
+
+  try{
+    if(!ws || ws.readyState!==WebSocket.OPEN){
+      await connect();
+    }
+
+    if(eligibleMarkets.length===0 || !eligibleMarkets.some(x=>x.underlying_symbol===SYMBOL)){
+      await discoverEligibleMarkets();
+      SYMBOL=$('marketSelect').value;
+    }
+
+    // Start a clean tick subscription for the selected market.
+    try{ ws.send(JSON.stringify({forget_all:1,req_id:reqId++})); }catch{}
+    prices=[];
+    ws.send(JSON.stringify({ticks:SYMBOL,subscribe:1,req_id:reqId++}));
+
+    const verified=await verifyAsianContracts(SYMBOL);
+    if(!verified.hasDown || !verified.hasUp){
+      throw new Error(`Selected market ${SYMBOL} does not expose both ASIAND and ASIANU in contracts_for.`);
+    }
+
+    $('marketStatus').textContent=`Trading test market: ${marketLabel(SYMBOL)}. Both Asian contracts verified.`;
+    log(`Starting ${marketLabel(SYMBOL)} | 3 mandatory + optional filter: ${OPTIONALS[$('optionalFeature').value].label} | money management: ${mmEnabled()?'ON':'OFF'}`);
+
+    // Reset the price history to avoid mixing instruments.
+    prices=[];
+    ws.send(JSON.stringify({ticks:SYMBOL,subscribe:1,req_id:reqId++}));
+
+    const deadline=Date.now()+12000; while(prices.length<20&&Date.now()<deadline)await sleep(100);
+    if(prices.length<20)throw new Error(`Timed out waiting for 20 ticks from ${SYMBOL}.`);
+    $('status').textContent='RUNNING'; await runPair();
+  }catch(e){running=false;$('start').disabled=false;$('stop').disabled=true;$('mmSwitch').disabled=false;$('status').textContent='FAILED';log(`FAILED: ${e.message}`);}
+};
+$('stop').onclick=()=>{stopAfterPair=true;$('stop').disabled=true;log('STOP requested. Current pair will finish; no new pair will start.');};
+updateOptionalHelp();
+updateMoneyManagementUI();
+$('csv').onclick=downloadCsv;
+})();
+</script>
+</body>
+</html>
