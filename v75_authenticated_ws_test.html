@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>V75 Authenticated WebSocket Test</title>
+<style>
+body{font-family:Arial,sans-serif;margin:24px;background:#f5f6f8;color:#111827}
+.card{max-width:900px;margin:auto;background:#fff;padding:24px;border-radius:14px;box-shadow:0 4px 18px rgba(0,0,0,.08)}
+label{display:block;margin-top:14px;font-weight:600}
+input{width:100%;box-sizing:border-box;padding:10px;margin-top:6px;border:1px solid #cbd5e1;border-radius:8px}
+button{margin-top:16px;padding:10px 16px;border:0;border-radius:8px;background:#2563eb;color:#fff;cursor:pointer}
+button:disabled{opacity:.5}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:18px}
+.metric{background:#f8fafc;padding:14px;border-radius:10px}.metric b{display:block;margin-top:4px;font-size:20px}
+#log{margin-top:18px;background:#0f172a;color:#e5e7eb;padding:14px;border-radius:10px;min-height:300px;white-space:pre-wrap;font-family:Consolas,monospace;font-size:12px;overflow:auto}
+.warn{margin-top:16px;padding:12px;border:1px solid #fdba74;background:#fff7ed;border-radius:10px}
+</style>
+</head>
+<body>
+<div class="card">
+<h1>V75 Authenticated WebSocket Test</h1>
+<p>This page <strong>does not place trades</strong>. It tests the exact browser authentication path we will use for the bot.</p>
+
+<label>Deriv App ID
+<input id="appId" placeholder="Your V75 Asian Bot App ID"></label>
+
+<label>Demo Options Account ID
+<input id="accountId" value="DOT94618672"></label>
+
+<label>Personal Access Token (PAT)
+<input id="pat" type="password" autocomplete="off" placeholder="Enter PAT locally — never send it in chat"></label>
+
+<button id="test">Test Authenticated WebSocket</button>
+
+<div class="warn"><strong>Security:</strong> PAT and the temporary OTP URL are never written to the page log. This page has no third-party scripts.</div>
+
+<div class="grid">
+<div class="metric">WebSocket<b id="status">Not tested</b></div>
+<div class="metric">V75 tick<b id="tick">—</b></div>
+<div class="metric">Messages<b id="messages">0</b></div>
+</div>
+
+<div id="log"></div>
+</div>
+
+<script>
+(() => {
+const API='https://api.derivws.com';
+const SYMBOL='1HZ75V';
+let count=0;
+
+const $=id=>document.getElementById(id);
+function log(s){$('log').textContent += '['+new Date().toLocaleTimeString()+'] '+s+'\\n'; $('log').scrollTop=$('log').scrollHeight;}
+
+async function otp(app,acct,pat){
+  const r=await fetch(`${API}/trading/v1/options/accounts/${encodeURIComponent(acct)}/otp`,{
+    method:'POST',
+    headers:{'Authorization':`Bearer ${pat}`,'Deriv-App-ID':app}
+  });
+  if(!r.ok) throw new Error(`OTP HTTP ${r.status}`);
+  const d=await r.json();
+  if(!d?.data?.url) throw new Error('No WebSocket URL returned.');
+  return d.data.url;
+}
+
+$('test').onclick=async()=>{
+  const app=$('appId').value.trim();
+  const acct=$('accountId').value.trim();
+  const pat=$('pat').value.trim();
+
+  if(!app||!acct||!pat){log('Enter App ID, account ID and PAT.');return;}
+  if(!/^DOT/i.test(acct)){log('Safety check: this test only accepts a Demo DOT account.');return;}
+
+  $('test').disabled=true;
+  $('status').textContent='Requesting OTP...';
+  try{
+    log('1) Requesting fresh OTP from Deriv...');
+    const url=await otp(app,acct,pat);
+
+    log('2) OTP received. Opening authenticated Demo WebSocket...');
+    const ws=new WebSocket(url);
+
+    let opened=false;
+    const timer=setTimeout(()=>{
+      if(!opened){
+        $('status').textContent='Timeout';
+        log('WebSocket did not open within 15 seconds.');
+        try{ws.close();}catch{}
+      }
+    },15000);
+
+    ws.onopen=()=>{
+      opened=true; clearTimeout(timer);
+      $('status').textContent='CONNECTED';
+      log('3) SUCCESS: authenticated Demo WebSocket opened.');
+
+      ws.send(JSON.stringify({ticks:SYMBOL,subscribe:1,req_id:101}));
+      ws.send(JSON.stringify({balance:1,subscribe:1,req_id:102}));
+      log('4) Requested V75 (1s) tick stream.');
+    };
+
+    ws.onmessage=e=>{
+      count++; $('messages').textContent=String(count);
+      const d=JSON.parse(e.data);
+
+      if(d.error){
+        log(`API error: ${d.error.code||''} ${d.error.message||''}`);
+        return;
+      }
+
+      if(d.msg_type==='tick'){
+        $('tick').textContent=Number(d.tick.quote).toFixed(2);
+        if(count<10) log(`V75 tick received: ${Number(d.tick.quote).toFixed(2)}`);
+      }
+
+      if(d.msg_type==='balance'){
+        log(`Demo balance stream active: ${d.balance.balance} ${d.balance.currency}`);
+      }
+    };
+
+    ws.onerror=()=>{
+      $('status').textContent='ERROR';
+      log('WebSocket onerror fired. Check the browser network/firewall.');
+    };
+
+    ws.onclose=e=>{
+      if(opened){
+        $('status').textContent='CLOSED';
+        log(`WebSocket closed. Code=${e.code}. Reason=${e.reason||'(none)'}`);
+      }
+    };
+  }catch(e){
+    $('status').textContent='FAILED';
+    log(`Failure: ${e.name||'Error'}: ${e.message}`);
+  }finally{
+    $('test').disabled=false;
+  }
+};
+})();
+</script>
+</body>
+</html>
