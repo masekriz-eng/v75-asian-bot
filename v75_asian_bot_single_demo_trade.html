@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>V75 Asian Bot - Single Demo Trade</title>
+<style>
+body{font-family:Arial,sans-serif;margin:24px;background:#f5f6f8;color:#111827}
+.card{max-width:900px;margin:auto;background:#fff;padding:24px;border-radius:14px;box-shadow:0 4px 18px rgba(0,0,0,.08)}
+label{display:block;margin-top:14px;font-weight:600}
+input{width:100%;box-sizing:border-box;padding:10px;margin-top:6px;border:1px solid #cbd5e1;border-radius:8px}
+button{margin-top:16px;padding:11px 17px;border:0;border-radius:8px;background:#2563eb;color:white;cursor:pointer}
+button:disabled{opacity:.5;cursor:not-allowed}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:18px}
+.metric{background:#f8fafc;padding:13px;border-radius:10px}.metric b{display:block;margin-top:4px;font-size:19px}
+.warn{margin-top:16px;padding:12px;border:1px solid #fdba74;background:#fff7ed;border-radius:10px}
+#log{margin-top:18px;background:#0f172a;color:#e5e7eb;padding:14px;border-radius:10px;min-height:280px;white-space:pre-wrap;font-family:Consolas,monospace;font-size:12px;overflow:auto}
+.result{margin-top:18px;padding:16px;border-radius:10px;background:#f8fafc}
+</style>
+</head>
+<body>
+<div class="card">
+<h1>V75 Asian Bot — Single Demo Trade</h1>
+<p>This version can place <strong>ONE ASIANU trade on your Demo DOT account</strong>. It will not trade on a real account.</p>
+
+<label>Deriv App ID
+<input id="appId" placeholder="Your App ID"></label>
+
+<label>Demo Options Account ID
+<input id="accountId" value="DOT94618672"></label>
+
+<label>Personal Access Token (PAT)
+<input id="pat" type="password" autocomplete="off" placeholder="Enter PAT locally — never send it in chat"></label>
+
+<label>Stake (USD)
+<input id="stake" type="number" value="0.35" min="0.35" max="0.35" step="0.01"></label>
+
+<label>Expiry (ticks)
+<input id="duration" type="number" value="5" min="1" max="10" step="1"></label>
+
+<button id="trade">Place ONE ASIANU Demo Trade</button>
+
+<div class="warn">
+<strong>Safety:</strong> Demo account only. The page rejects non-DOT account IDs. There is exactly one buy operation per button click. No Martingale, no automatic repeat, and no real-account endpoint.
+</div>
+
+<div class="grid">
+<div class="metric">Connection<b id="status">Not connected</b></div>
+<div class="metric">V75 tick<b id="tick">—</b></div>
+<div class="metric">Buy price<b id="buyprice">—</b></div>
+<div class="metric">Result<b id="result">—</b></div>
+</div>
+
+<div class="result">
+<strong>Trade status:</strong> <span id="detail">No trade placed.</span>
+</div>
+
+<div id="log"></div>
+</div>
+
+<script>
+(() => {
+const API='https://api.derivws.com', SYMBOL='1HZ75V';
+let ws=null, reqId=1000, activeContractId=null, settled=false;
+
+const $=id=>document.getElementById(id);
+function log(s){$('log').textContent += '['+new Date().toLocaleTimeString()+'] '+s+'\\n'; $('log').scrollTop=$('log').scrollHeight;}
+
+function request(payload){
+  return new Promise((resolve,reject)=>{
+    const id=reqId++;
+    const timer=setTimeout(()=>{ws.removeEventListener('message', handler);reject(new Error('Request timeout'));},15000);
+    function handler(e){
+      let d;
+      try{d=JSON.parse(e.data)}catch{return}
+      if(d.req_id!==id)return;
+      ws.removeEventListener('message',handler);
+      clearTimeout(timer);
+      if(d.error) reject(new Error(`${d.error.code||'API'}: ${d.error.message||''}`));
+      else resolve(d);
+    }
+    ws.addEventListener('message',handler);
+    ws.send(JSON.stringify({...payload,req_id:id}));
+  });
+}
+
+async function getOtp(app,acct,pat){
+  const r=await fetch(`${API}/trading/v1/options/accounts/${encodeURIComponent(acct)}/otp`,{
+    method:'POST',
+    headers:{'Authorization':`Bearer ${pat}`,'Deriv-App-ID':app}
+  });
+  if(!r.ok) throw new Error(`OTP HTTP ${r.status}`);
+  const d=await r.json();
+  if(!d?.data?.url) throw new Error('No WebSocket URL returned');
+  if(!d.data.url.includes('/options/ws/demo')) throw new Error('Safety stop: returned WebSocket is not Demo');
+  return d.data.url;
+}
+
+async function connect(url){
+  ws=new WebSocket(url);
+  await new Promise((resolve,reject)=>{
+    const t=setTimeout(()=>reject(new Error('WebSocket open timeout')),15000);
+    ws.onopen=()=>{clearTimeout(t);resolve()};
+    ws.onerror=()=>{clearTimeout(t);reject(new Error('WebSocket error'))};
+  });
+  $('status').textContent='CONNECTED';
+  log('Authenticated Demo WebSocket connected.');
+  ws.onmessage=(e)=>{
+    let d; try{d=JSON.parse(e.data)}catch{return}
+    if(d.error){log(`API error: ${d.error.code||''} ${d.error.message||''}`);return;}
+    if(d.msg_type==='tick'){
+      $('tick').textContent=Number(d.tick.quote).toFixed(2);
+    }
+    if(d.msg_type==='proposal_open_contract'){
+      const c=d.proposal_open_contract||{};
+      if(String(c.contract_id)!==String(activeContractId)) return;
+      const profit=Number(c.profit||0);
+      if(Boolean(c.is_sold) || c.status==='won' || c.status==='lost'){
+        if(settled)return;
+        settled=true;
+        $('result').textContent=c.status==='won'?'WON':c.status==='lost'?'LOST':(profit>0?'WON':'LOST');
+        $('detail').textContent=`Contract ${c.contract_id} settled. Profit/Loss: ${profit>=0?'+':''}$${profit.toFixed(2)}.`;
+        log(`CONTRACT SETTLED: ${c.status||''} | P/L ${profit>=0?'+':''}$${profit.toFixed(2)}`);
+      }
+    }
+  };
+}
+
+$('trade').onclick=async()=>{
+  if(activeContractId && !settled){log('A trade is already active/being monitored.');return;}
+
+  const app=$('appId').value.trim();
+  const acct=$('accountId').value.trim();
+  const pat=$('pat').value.trim();
+  const stake=Number($('stake').value);
+  const duration=Number($('duration').value);
+
+  if(!app||!acct||!pat){log('Enter App ID, Demo account ID and PAT.');return;}
+  if(!/^DOT/i.test(acct)){log('Safety stop: only a Demo DOT account is accepted.');return;}
+  if(stake!==0.35){log('Safety stop: stake must remain $0.35.');return;}
+
+  $('trade').disabled=true;
+  $('result').textContent='Testing...';
+  $('detail').textContent='Connecting and requesting proposal...';
+
+  try{
+    log('Requesting fresh Demo WebSocket URL...');
+    const url=await getOtp(app,acct,pat);
+    await connect(url);
+
+    log('Requesting ASIANU proposal: $0.35, '+duration+' ticks...');
+    const pr=await request({
+      proposal:1,
+      amount:stake,
+      basis:'stake',
+      contract_type:'ASIANU',
+      currency:'USD',
+      duration:duration,
+      duration_unit:'t',
+      underlying_symbol:SYMBOL
+    });
+
+    const ask=Number(pr.proposal.ask_price);
+    const payout=Number(pr.proposal.payout);
+    $('buyprice').textContent='$'+ask.toFixed(2);
+    log(`Proposal received. Ask=$${ask.toFixed(2)}, payout=$${payout.toFixed(2)}.`);
+
+    log('BUYING exactly one ASIANU Demo contract...');
+    const b=await request({buy:pr.proposal.id,price:ask});
+    activeContractId=b.buy.contract_id;
+    $('result').textContent='PURCHASED';
+    $('detail').textContent=`Contract ${activeContractId} purchased. Waiting for settlement...`;
+    log(`PURCHASE SUCCESS. Contract ID: ${activeContractId}.`);
+
+    // Subscribe to contract updates.
+    ws.send(JSON.stringify({
+      proposal_open_contract:1,
+      contract_id:Number(activeContractId),
+      subscribe:1,
+      req_id:reqId++
+    }));
+    log('Monitoring contract until expiry...');
+  }catch(e){
+    $('result').textContent='FAILED';
+    $('detail').textContent=e.message;
+    log('TEST FAILED: '+e.message);
+  }finally{
+    $('trade').disabled=false;
+  }
+};
+})();
+</script>
+</body>
+</html>
