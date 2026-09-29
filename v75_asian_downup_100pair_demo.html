@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>V75 Asian Bot - DOWN to UP 100 Pair Demo</title>
+<style>
+body{font-family:Arial,sans-serif;margin:24px;background:#f5f6f8;color:#111827}
+.card{max-width:1100px;margin:auto;background:#fff;padding:24px;border-radius:14px;box-shadow:0 4px 18px rgba(0,0,0,.08)}
+h1{margin:0 0 6px}.sub{color:#4b5563}
+label{display:block;margin-top:12px;font-weight:600}
+input{width:100%;box-sizing:border-box;padding:10px;margin-top:6px;border:1px solid #cbd5e1;border-radius:8px}
+button{margin-top:16px;margin-right:8px;padding:11px 17px;border:0;border-radius:8px;background:#2563eb;color:#fff;cursor:pointer}
+button.stop{background:#dc2626}button.csv{background:#475569}
+button:disabled{opacity:.5;cursor:not-allowed}
+.grid{display:grid;grid-template-columns:repeat(8,1fr);gap:10px;margin-top:18px}
+.metric{background:#f8fafc;padding:12px;border-radius:10px}.metric b{display:block;margin-top:4px;font-size:17px}
+.warn{margin-top:16px;padding:12px;border:1px solid #fdba74;background:#fff7ed;border-radius:10px}
+.good{margin-top:16px;padding:12px;border:1px solid #86efac;background:#f0fdf4;border-radius:10px}
+#log{margin-top:18px;background:#0f172a;color:#e5e7eb;padding:14px;border-radius:10px;min-height:220px;max-height:360px;white-space:pre-wrap;font-family:Consolas,monospace;font-size:12px;overflow:auto}
+table{width:100%;border-collapse:collapse;margin-top:18px;font-size:12px}
+th,td{padding:7px;border-bottom:1px solid #e5e7eb;text-align:left;white-space:nowrap}
+</style>
+</head>
+<body>
+<div class="card">
+<h1>V75 (1s) Asian Bot — DOWN → UP 100 Pair Demo</h1>
+<p class="sub">Controlled experiment from the 100-pair results. Flat $0.35, 5 ticks, 1-second stagger. DOWN is always first; UP is always second. No Martingale.</p>
+
+<label>Deriv App ID<input id="appId" placeholder="Paste your V75 Asian Bot App ID"></label>
+<label>Demo Options Account ID<input id="accountId" value="DOT94618672"></label>
+<label>Personal Access Token (PAT)<input id="pat" type="password" autocomplete="off" placeholder="Paste PAT locally"></label>
+
+<label>Stake (USD)<input id="stake" type="number" value="0.35" min="0.35" max="0.35" step="0.01"></label>
+<label>Expiry (ticks)<input id="duration" type="number" value="5" min="1" max="10" step="1"></label>
+<label>Delay (milliseconds)<input id="delay" type="number" value="1000" min="1000" max="1000" step="100"></label>
+<label>Pairs to run<input id="pairs" type="number" value="100" min="1" max="100" step="1"></label>
+<label>Minimum distance from SMA (index points)<input id="minDist" type="number" value="0" min="0" step="0.01"></label>
+<label>Emergency session-loss stop (USD)<input id="lossLimit" type="number" value="25" min="0" max="1000" step="0.70"></label>
+
+<button id="start">START DOWN → UP TEST</button>
+<button id="stop" class="stop" disabled>STOP AFTER CURRENT PAIR</button>
+<button id="csv" class="csv" disabled>DOWNLOAD CSV</button>
+
+<div class="warn"><strong>Safety:</strong> Demo DOT account only. Every pair uses exactly two demo buy operations. No live-account endpoint and no Martingale. The emergency loss stop is only a safeguard; changing it can truncate the sample.</div>
+<div class="good"><strong>Research objective:</strong> isolate the DOWN → UP branch that looked different in the prior 100-pair sample, then compare both-win, both-loss and pair expectancy with the earlier mixed-direction test.</div>
+
+<div class="grid">
+<div class="metric">Status<b id="status">READY</b></div>
+<div class="metric">Pair<b id="pair">0 / 100</b></div>
+<div class="metric">V75 tick<b id="tick">—</b></div>
+<div class="metric">SMA(5)<b id="sma">—</b></div>
+<div class="metric">Distance<b id="dist">—</b></div>
+<div class="metric">Both win<b id="ww">0</b></div>
+<div class="metric">Both loss<b id="ll">0</b></div>
+<div class="metric">Total P/L<b id="pnl">$0.00</b></div>
+</div>
+
+<table>
+<thead><tr><th>#</th><th>Tick</th><th>SMA</th><th>Dist</th><th>DOWN</th><th>UP</th><th>Outcome</th><th>Pair P/L</th><th>Cumulative</th></tr></thead>
+<tbody id="rows"></tbody>
+</table>
+
+<div id="log"></div>
+</div>
+
+<script>
+(() => {
+const API='https://api.derivws.com';
+const SYMBOL='1HZ75V';
+
+let ws=null;
+let reqId=30000;
+let prices=[];
+let running=false;
+let stopAfterPair=false;
+
+let pairNo=0;
+let sessionPnl=0;
+let bothWin=0;
+let bothLoss=0;
+let mixed=0;
+let equityPeak=0;
+let maxDrawdown=0;
+
+let records=[];
+let activePair=null;
+let pending=new Map();
+
+const $=id=>document.getElementById(id);
+function log(m){$('log').textContent+=`[${new Date().toLocaleTimeString()}] ${m}\n`;$('log').scrollTop=$('log').scrollHeight;}
+function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
+function money(v){return `${v>=0?'+$':'-$'}${Math.abs(v).toFixed(2)}`;}
+function sma5(){if(prices.length<5)return null;const a=prices.slice(-5);return a.reduce((x,y)=>x+y,0)/5;}
+function momentum(n){if(prices.length<=n)return null;return prices.at(-1)-prices.at(-1-n);}
+function stdev20(){if(prices.length<20)return null;const a=prices.slice(-20),m=a.reduce((x,y)=>x+y,0)/a.length;return Math.sqrt(a.reduce((s,x)=>s+(x-m)**2,0)/a.length);}
+
+function send(payload){
+  const id=reqId++;
+  return new Promise((resolve,reject)=>{
+    const timer=setTimeout(()=>{pending.delete(id);reject(new Error('Request timed out'));},15000);
+    pending.set(id,{resolve,reject,timer});
+    ws.send(JSON.stringify({...payload,req_id:id}));
+  });
+}
+
+async function getOtp(app,acct,pat){
+  const r=await fetch(`${API}/trading/v1/options/accounts/${encodeURIComponent(acct)}/otp`,{
+    method:'POST',
+    headers:{'Authorization':`Bearer ${pat}`,'Deriv-App-ID':app}
+  });
+  if(!r.ok)throw new Error(`OTP HTTP ${r.status}`);
+  const d=await r.json();
+  if(!d?.data?.url)throw new Error('No WebSocket URL returned');
+  if(!String(d.data.url).includes('/options/ws/demo'))throw new Error('Safety stop: non-Demo endpoint');
+  return d.data.url;
+}
+
+async function connect(){
+  const app=$('appId').value.trim(),acct=$('accountId').value.trim(),pat=$('pat').value.trim();
+  if(!app||!acct||!pat)throw new Error('Enter App ID, Demo account ID and PAT.');
+  if(!/^DOT/i.test(acct))throw new Error('Safety stop: use a Demo DOT Options account.');
+
+  const url=await getOtp(app,acct,pat);
+  ws=new WebSocket(url);
+
+  await new Promise((resolve,reject)=>{
+    const t=setTimeout(()=>reject(new Error('WebSocket open timeout')),15000);
+    ws.addEventListener('open',()=>{clearTimeout(t);resolve();},{once:true});
+    ws.addEventListener('error',()=>{clearTimeout(t);reject(new Error('WebSocket error'));},{once:true});
+  });
+
+  log('Authenticated Demo WebSocket connected.');
+
+  ws.onmessage=e=>{
+    let m;try{m=JSON.parse(e.data)}catch{return}
+
+    if(m.req_id&&pending.has(m.req_id)){
+      const w=pending.get(m.req_id);
+      pending.delete(m.req_id);
+      clearTimeout(w.timer);
+      if(m.error)w.reject(new Error(`${m.error.code||'API'}: ${m.error.message||''}`));
+      else w.resolve(m);
+      return;
+    }
+
+    if(m.error){log(`API error: ${m.error.code||''} ${m.error.message||''}`);return;}
+
+    if(m.msg_type==='tick'){
+      const q=Number(m.tick.quote);
+      if(Number.isFinite(q)){
+        prices.push(q);
+        if(prices.length>1000)prices.shift();
+        $('tick').textContent=q.toFixed(2);
+        const s=sma5();
+        $('sma').textContent=s===null?'waiting...':s.toFixed(2);
+        $('dist').textContent=s===null?'—':Math.abs(q-s).toFixed(2);
+      }
+    }
+
+    if(m.msg_type==='proposal_open_contract'){
+      const c=m.proposal_open_contract||{};
+      const id=String(c.contract_id||'');
+      if(!activePair||!activePair.contracts[id])return;
+
+      const rec=activePair.contracts[id];
+      rec.pnl=Number(c.profit||0);
+      rec.status=c.status||'open';
+      rec.done=Boolean(c.is_sold)||rec.status==='won'||rec.status==='lost';
+
+      if(rec.done&&!rec.counted){
+        rec.counted=true;
+        if(Object.values(activePair.contracts).every(x=>x.done))finishPair();
+      }
+    }
+  };
+
+  ws.send(JSON.stringify({ticks:SYMBOL,subscribe:1,req_id:reqId++}));
+  log('Subscribed to V75 (1s) tick stream.');
+}
+
+async function buy(type,side){
+  const stake=Number($('stake').value);
+  const duration=Number($('duration').value);
+
+  const proposal=await send({
+    proposal:1,
+    amount:stake,
+    basis:'stake',
+    contract_type:type,
+    currency:'USD',
+    duration,
+    duration_unit:'t',
+    underlying_symbol:SYMBOL
+  });
+
+  const p=proposal.proposal;
+  const ask=Number(p.ask_price);
+  if(!Number.isFinite(ask)||ask<=0)throw new Error(`Invalid ask price for ${side}.`);
+
+  log(`${side} proposal: ask=$${ask.toFixed(2)}, payout=$${Number(p.payout).toFixed(2)}`);
+
+  const b=await send({buy:p.id,price:ask});
+  const id=String(b.buy.contract_id);
+
+  activePair.contracts[id]={
+    id,side,pnl:0,status:'open',done:false,counted:false
+  };
+
+  log(`${side} PURCHASED: ${id}`);
+
+  ws.send(JSON.stringify({
+    proposal_open_contract:1,
+    contract_id:Number(id),
+    subscribe:1,
+    req_id:reqId++
+  }));
+}
+
+function addRow(r){
+  const tr=document.createElement('tr');
+  tr.innerHTML=`
+<td>${r.pair}</td><td>${r.tick.toFixed(2)}</td><td>${r.sma.toFixed(2)}</td><td>${r.distance.toFixed(2)}</td>
+<td>${r.down_status.toUpperCase()} ${money(r.down_pnl)}</td>
+<td>${r.up_status.toUpperCase()} ${money(r.up_pnl)}</td>
+<td>${r.outcome}</td><td>${money(r.pair_pnl)}</td><td>${money(r.cumulative_pnl)}</td>`;
+  $('rows').appendChild(tr);
+}
+
+function finishPair(){
+  if(!activePair||activePair.finished)return;
+  activePair.finished=true;
+
+  const vals=Object.values(activePair.contracts);
+  const down=vals.find(x=>x.side==='DOWN');
+  const up=vals.find(x=>x.side==='UP');
+  if(!down||!up){
+    running=false;
+    $('status').textContent='FAILED';
+    $('start').disabled=false;
+    $('stop').disabled=true;
+    log('Pair ended without both contracts. Stopping for safety.');
+    return;
+  }
+
+  const pairPnl=down.pnl+up.pnl;
+  sessionPnl+=pairPnl;
+  equityPeak=Math.max(equityPeak,sessionPnl);
+  maxDrawdown=Math.max(maxDrawdown,equityPeak-sessionPnl);
+
+  let outcome='MIXED';
+  if(down.pnl>0&&up.pnl>0){bothWin++;outcome='BOTH WIN';}
+  else if(down.pnl<=0&&up.pnl<=0){bothLoss++;outcome='BOTH LOSS';}
+  else mixed++;
+
+  const r={
+    pair:pairNo,
+    timestamp:new Date().toISOString(),
+    signal:'DOWN → UP',
+    tick:activePair.features.tick,
+    sma:activePair.features.sma,
+    distance:activePair.features.distance,
+    momentum3:activePair.features.momentum3,
+    momentum5:activePair.features.momentum5,
+    stdev20:activePair.features.stdev20,
+    down_status:down.status,
+    down_pnl:down.pnl,
+    up_status:up.status,
+    up_pnl:up.pnl,
+    outcome,
+    pair_pnl:pairPnl,
+    cumulative_pnl:sessionPnl,
+    max_drawdown:maxDrawdown
+  };
+
+  records.push(r);
+  addRow(r);
+
+  $('ww').textContent=String(bothWin);
+  $('ll').textContent=String(bothLoss);
+  $('pnl').textContent=money(sessionPnl);
+
+  log(`PAIR ${pairNo} COMPLETE: ${outcome} | ${money(pairPnl)} | Session ${money(sessionPnl)} | Max DD $${maxDrawdown.toFixed(2)}`);
+
+  activePair=null;
+
+  const limit=Number($('pairs').value);
+  const lossLimit=Number($('lossLimit').value);
+
+  if(stopAfterPair||pairNo>=limit||sessionPnl<=-Math.abs(lossLimit)){
+    running=false;
+    $('status').textContent=sessionPnl<=-Math.abs(lossLimit)?'LOSS STOP':'COMPLETE';
+    $('start').disabled=false;
+    $('stop').disabled=true;
+    $('csv').disabled=false;
+    log(`DONE: ${pairNo} pairs | BOTH WIN=${bothWin} | MIXED=${mixed} | BOTH LOSS=${bothLoss} | TOTAL=${money(sessionPnl)}`);
+    return;
+  }
+
+  setTimeout(runPair,300);
+}
+
+async function runPair(){
+  if(!running||stopAfterPair||activePair)return;
+  if(prices.length<6){setTimeout(runPair,200);return;}
+
+  const tick=prices.at(-1);
+  const sma=sma5();
+  if(sma===null){setTimeout(runPair,200);return;}
+
+  const distance=Math.abs(tick-sma);
+  const minDist=Number($('minDist').value);
+
+  // DOWN -> UP only means tick must be below the chosen SMA.
+  if(tick>=sma || distance<minDist){
+    setTimeout(runPair,200);
+    return;
+  }
+
+  pairNo++;
+  $('pair').textContent=`${pairNo} / ${Number($('pairs').value)}`;
+  $('dist').textContent=distance.toFixed(2);
+
+  const mom3=momentum(3);
+  const mom5=momentum(5);
+  const sd20=stdev20();
+
+  activePair={
+    signal:'DOWN → UP',
+    features:{tick,sma,distance,momentum3:mom3,momentum5:mom5,stdev20:sd20},
+    contracts:{},
+    finished:false
+  };
+
+  log(`PAIR ${pairNo}: DOWN → UP | tick=${tick.toFixed(2)} | SMA=${sma.toFixed(2)} | dist=${distance.toFixed(2)}`);
+  $('status').textContent='BUYING DOWN...';
+
+  await buy('ASIAND','DOWN');
+
+  if(!running||stopAfterPair)return;
+
+  await sleep(Number($('delay').value));
+
+  if(!activePair)return;
+
+  $('status').textContent='BUYING UP...';
+  await buy('ASIANU','UP');
+
+  $('status').textContent='MONITORING BOTH';
+}
+
+function downloadCsv(){
+  if(!records.length)return;
+  const fields=[
+    'pair','timestamp','signal','tick','sma','distance',
+    'momentum3','momentum5','stdev20',
+    'down_status','down_pnl','up_status','up_pnl',
+    'outcome','pair_pnl','cumulative_pnl','max_drawdown'
+  ];
+  const lines=[fields.join(',')];
+  for(const r of records)lines.push(fields.map(f=>JSON.stringify(r[f]??'')).join(','));
+  const blob=new Blob([lines.join('\n')],{type:'text/csv;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download='v75_downup_100_pair_results.csv';a.click();
+  URL.revokeObjectURL(url);
+}
+
+$('start').onclick=async()=>{
+  if(running)return;
+  if(Number($('stake').value)!==0.35){log('Safety stop: stake must be $0.35.');return;}
+  if(Number($('delay').value)!==1000){log('Safety stop: delay must be 1000 ms.');return;}
+
+  running=true;stopAfterPair=false;pairNo=0;sessionPnl=0;bothWin=0;bothLoss=0;mixed=0;equityPeak=0;maxDrawdown=0;records=[];prices=[];activePair=null;
+  $('rows').innerHTML='';$('ww').textContent='0';$('ll').textContent='0';$('pnl').textContent='$0.00';$('pair').textContent=`0 / ${$('pairs').value}`;$('csv').disabled=true;$('start').disabled=true;$('stop').disabled=false;$('status').textContent='CONNECTING...';
+
+  try{
+    if(!ws||ws.readyState!==WebSocket.OPEN)await connect();
+
+    const deadline=Date.now()+10000;
+    while(prices.length<6&&Date.now()<deadline)await sleep(100);
+    if(prices.length<6)throw new Error('Timed out waiting for six V75 ticks.');
+
+    $('status').textContent='RUNNING';
+    await runPair();
+  }catch(e){
+    running=false;$('start').disabled=false;$('stop').disabled=true;$('status').textContent='FAILED';log(`FAILED: ${e.message}`);
+  }
+};
+
+$('stop').onclick=()=>{
+  stopAfterPair=true;$('stop').disabled=true;
+  log('STOP requested. The current pair will finish; no new pair will start.');
+};
+
+$('csv').onclick=downloadCsv;
+})();
+</script>
+</div>
+</body>
+</html>
