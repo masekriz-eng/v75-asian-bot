@@ -3,278 +3,139 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>V75 Asian Bot — Demo v1</title>
+<title>V75 Asian Bot - Connection Baseline</title>
 <style>
 body{font-family:Arial,sans-serif;margin:24px;background:#f5f6f8;color:#111827}
-.card{max-width:980px;margin:auto;background:#fff;padding:24px;border-radius:14px;box-shadow:0 4px 18px rgba(0,0,0,.08)}
-h1{margin:0 0 6px}.sub{color:#4b5563;margin-top:0}
-label{display:block;margin-top:13px;font-weight:600}
+.card{max-width:900px;margin:auto;background:#fff;padding:24px;border-radius:14px;box-shadow:0 4px 18px rgba(0,0,0,.08)}
+label{display:block;margin-top:14px;font-weight:600}
 input{width:100%;box-sizing:border-box;padding:10px;margin-top:6px;border:1px solid #cbd5e1;border-radius:8px}
-button{margin-top:16px;margin-right:8px;padding:10px 15px;border:0;border-radius:8px;cursor:pointer}
-#connect{background:#2563eb;color:white}#start{background:#16a34a;color:white}#stop{background:#dc2626;color:white}
-button:disabled{opacity:.45;cursor:not-allowed}
-.badge{display:inline-block;padding:5px 9px;border-radius:999px;background:#fee2e2;color:#991b1b;font-weight:700}
-.grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-top:20px}
-.metric{background:#f8fafc;padding:13px;border-radius:10px}.metric b{display:block;margin-top:4px;font-size:20px}
-.warn{background:#fff7ed;border:1px solid #fdba74;padding:12px;border-radius:10px;margin-top:16px}
-#log{margin-top:20px;background:#0f172a;color:#e2e8f0;padding:14px;border-radius:10px;min-height:260px;white-space:pre-wrap;font-family:Consolas,monospace;font-size:12px;overflow:auto}
-table{width:100%;border-collapse:collapse;margin-top:18px;font-size:13px}
-th,td{padding:8px;border-bottom:1px solid #e5e7eb;text-align:left}
-.status{font-weight:700}
-.small{font-size:12px;color:#6b7280}
+button{margin-top:16px;padding:10px 16px;border:0;border-radius:8px;background:#2563eb;color:#fff;cursor:pointer}
+button:disabled{opacity:.5}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:18px}
+.metric{background:#f8fafc;padding:14px;border-radius:10px}.metric b{display:block;margin-top:4px;font-size:20px}
+#log{margin-top:18px;background:#0f172a;color:#e5e7eb;padding:14px;border-radius:10px;min-height:300px;white-space:pre-wrap;font-family:Consolas,monospace;font-size:12px;overflow:auto}
+.warn{margin-top:16px;padding:12px;border:1px solid #fdba74;background:#fff7ed;border-radius:10px}
 </style>
 </head>
 <body>
 <div class="card">
-<h1>V75 (1s) Asian Bot <span class="badge">DEMO ONLY</span></h1>
-<p class="sub">Version 1: flat $0.35 stakes, SMA(5) directional entry, 1-second stagger, no Martingale.</p>
+<h1>V75 Asian Bot - Connection Baseline</h1>
+<p>This page is a known-good connection baseline. It <strong>does not place trades</strong>.</p>
 
 <label>Deriv App ID
 <input id="appId" placeholder="Your V75 Asian Bot App ID"></label>
 
 <label>Demo Options Account ID
-<input id="accountId" placeholder="DOT..."></label>
+<input id="accountId" value="DOT94618672"></label>
 
 <label>Personal Access Token (PAT)
-<input id="pat" type="password" autocomplete="off" placeholder="Your V75 BOT DEMO PAT"></label>
+<input id="pat" type="password" autocomplete="off" placeholder="Enter PAT locally — never send it in chat"></label>
 
-<label>Base stake (USD)
-<input id="stake" type="number" value="0.35" min="0.35" step="0.01"></label>
+<button id="test">Test Authenticated WebSocket</button>
 
-<label>Expiry (ticks)
-<input id="duration" type="number" value="5" min="1" max="10" step="1"></label>
-
-<label>Delay between first and opposite contract (milliseconds)
-<input id="delayMs" type="number" value="1000" min="200" max="5000" step="100"></label>
-
-<label>Maximum demo cycles
-<input id="maxCycles" type="number" value="3" min="1" max="100" step="1"></label>
-
-<label>Session loss stop (USD)
-<input id="lossLimit" type="number" value="5" min="0.35" max="100" step="0.35"></label>
-
-<div>
-<button id="connect">1. Connect & Read V75</button>
-<button id="start" disabled>2. START DEMO TRADING</button>
-<button id="stop" disabled>STOP</button>
-</div>
-
-<div class="warn">
-<strong>Safety:</strong> This v1 is restricted to a DOT Demo account and has no real-account endpoint. It will place real demo trades once you press START DEMO TRADING. Do not paste the PAT into chat.
-</div>
+<div class="warn"><strong>Security:</strong> PAT and the temporary OTP URL are never written to the page log. This page has no third-party scripts.</div>
 
 <div class="grid">
-<div class="metric">Connection<b id="conn">Disconnected</b></div>
-<div class="metric">Last tick<b id="tick">—</b></div>
-<div class="metric">SMA(5)<b id="sma">—</b></div>
-<div class="metric">Session P/L<b id="pnl">$0.00</b></div>
-<div class="metric">Demo balance<b id="balance">—</b></div>
+<div class="metric">WebSocket<b id="status">Not tested</b></div>
+<div class="metric">V75 tick<b id="tick">—</b></div>
+<div class="metric">Messages<b id="messages">0</b></div>
 </div>
 
-<table>
-<thead><tr><th>Cycle</th><th>First</th><th>Second</th><th>Up P/L</th><th>Down P/L</th><th>Cycle P/L</th><th>Status</th></tr></thead>
-<tbody id="cycles"></tbody>
-</table>
-
 <div id="log"></div>
-<p class="small">Signal: current tick > SMA(5) ⇒ Up first; current tick < SMA(5) ⇒ Down first; equality ⇒ no trade. The bot waits for both contracts to settle before starting the next cycle.</p>
 </div>
 
 <script>
 (() => {
-const API = "https://api.derivws.com";
-const SYMBOL = "1HZ75V";
-let ws = null, prices = [], connected = false, running = false;
-let sessionPnl = 0, cycleNo = 0, activeContracts = new Map(), requestWaiters = new Map();
-let balanceText = "";
+const API='https://api.derivws.com';
+const SYMBOL='1HZ75V';
+let count=0;
 
-const $ = id => document.getElementById(id);
-function log(msg){
-  $("log").textContent += `[${new Date().toLocaleTimeString()}] ${msg}\n`;
-  $("log").scrollTop = $("log").scrollHeight;
-}
-function setPnl(v){ sessionPnl=v; $("pnl").textContent=(v>=0?"+$":"-$")+Math.abs(v).toFixed(2); }
-function sma5(){
-  if(prices.length<5) return null;
-  const a=prices.slice(-5);
-  return a.reduce((x,y)=>x+y,0)/5;
-}
-function send(payload){
-  const req_id = Math.floor(Math.random()*1e9);
-  ws.send(JSON.stringify({...payload, req_id}));
-  return new Promise((resolve,reject)=>{
-    const timer=setTimeout(()=>{requestWaiters.delete(req_id);reject(new Error("Request timeout"));},15000);
-    requestWaiters.set(req_id,{resolve,reject,timer});
+const $=id=>document.getElementById(id);
+function log(s){$('log').textContent += '['+new Date().toLocaleTimeString()+'] '+s+'\\n'; $('log').scrollTop=$('log').scrollHeight;}
+
+async function otp(app,acct,pat){
+  const r=await fetch(`${API}/trading/v1/options/accounts/${encodeURIComponent(acct)}/otp`,{
+    method:'POST',
+    headers:{'Authorization':`Bearer ${pat}`,'Deriv-App-ID':app}
   });
-}
-async function getWsUrl(appId, accountId, pat){
-  if(!/^DOT/i.test(accountId)) throw new Error("Safety stop: this version accepts Demo Options account IDs beginning with DOT only.");
-  const r=await fetch(`${API}/trading/v1/options/accounts/${encodeURIComponent(accountId)}/otp`,{
-    method:"POST",
-    headers:{"Authorization":`Bearer ${pat}`,"Deriv-App-ID":appId}
-  });
-  if(!r.ok) throw new Error(`OTP request failed: HTTP ${r.status}`);
+  if(!r.ok) throw new Error(`OTP HTTP ${r.status}`);
   const d=await r.json();
-  if(!d?.data?.url) throw new Error("Deriv did not return a WebSocket URL.");
-  if(!d.data.url.includes("/options/ws/demo")) throw new Error("Safety stop: returned WebSocket is not the Demo endpoint.");
+  if(!d?.data?.url) throw new Error('No WebSocket URL returned.');
   return d.data.url;
 }
-function attachHandlers(){
-  ws.onmessage=(e)=>{
-    const d=JSON.parse(e.data);
-    if(d.req_id && requestWaiters.has(d.req_id)){
-      const w=requestWaiters.get(d.req_id); requestWaiters.delete(d.req_id); clearTimeout(w.timer);
-      if(d.error) w.reject(new Error(`${d.error.code||"API"}: ${d.error.message||"Unknown error"}`));
-      else w.resolve(d);
-      return;
-    }
-    if(d.error){ log(`API error: ${d.error.code||""} ${d.error.message||""}`); return; }
 
-    if(d.msg_type==="balance"){ const b=d.balance||{}; balanceText=`${b.balance} ${b.currency||""}`; $("balance").textContent=balanceText; }\n    if(d.msg_type==="tick"){
-      const q=Number(d.tick.quote); prices.push(q); if(prices.length>1000) prices.shift();
-      $("tick").textContent=q.toFixed(2);
-      const s=sma5(); $("sma").textContent=s===null?"waiting...":s.toFixed(2);
-    }
+$('test').onclick=async()=>{
+  const app=$('appId').value.trim();
+  const acct=$('accountId').value.trim();
+  const pat=$('pat').value.trim();
 
-    if(d.msg_type==="proposal_open_contract"){
-      const c=d.proposal_open_contract||{};
-      const id=String(c.contract_id||"");
-      if(!id || !activeContracts.has(id)) return;
-      const rec=activeContracts.get(id);
-      rec.profit=Number(c.profit||0);
-      rec.status=c.status||"open";
-      rec.sold=Boolean(c.is_sold) || rec.status==="won" || rec.status==="lost";
-      if(rec.sold && !rec.done){
-        rec.done=true;
-        if(rec.status==="won") rec.result="WON";
-        else if(rec.status==="lost") rec.result="LOST";
-        else rec.result=rec.profit>0?"WON":"LOST";
-        checkCycleComplete(rec.cycleId);
+  if(!app||!acct||!pat){log('Enter App ID, account ID and PAT.');return;}
+  if(!/^DOT/i.test(acct)){log('Safety check: this test only accepts a Demo DOT account.');return;}
+
+  $('test').disabled=true;
+  $('status').textContent='Requesting OTP...';
+  try{
+    log('1) Requesting fresh OTP from Deriv...');
+    const url=await otp(app,acct,pat);
+
+    log('2) OTP received. Opening authenticated Demo WebSocket...');
+    const ws=new WebSocket(url);
+
+    let opened=false;
+    const timer=setTimeout(()=>{
+      if(!opened){
+        $('status').textContent='Timeout';
+        log('WebSocket did not open within 15 seconds.');
+        try{ws.close();}catch{}
       }
-    }
-  };
-  ws.onclose=()=>{
-    connected=false; running=false; $("conn").textContent="Disconnected"; $("start").disabled=true; $("stop").disabled=true;
-    log("WebSocket closed.");
-  };
-  ws.onerror=()=>log("WebSocket error.");
-}
-async function connect(){
-  const appId=$("appId").value.trim(), acct=$("accountId").value.trim(), pat=$("pat").value.trim();
-  if(!appId||!acct||!pat){log("Enter App ID, Demo Options Account ID and PAT.");return;}
-  $("connect").disabled=true;
-  try{
-    log("Requesting Demo Options WebSocket URL...");
-    const url=await getWsUrl(appId,acct,pat);
-    ws=new WebSocket(url); attachHandlers();
-    await new Promise((resolve,reject)=>{
-      const t=setTimeout(()=>reject(new Error("WebSocket connect timeout")),12000);
-      ws.addEventListener("open",()=>{clearTimeout(t);resolve();},{once:true});
-      ws.addEventListener("error",()=>{clearTimeout(t);reject(new Error("WebSocket connection failed"));},{once:true});
-    });
-    connected=true; $("conn").textContent="Connected";
-    log("Connected to Demo Options WebSocket.");
-    ws.send(JSON.stringify({ticks:SYMBOL,subscribe:1,req_id:1}));
-    ws.send(JSON.stringify({balance:1,subscribe:1,req_id:2}));
-    $("start").disabled=false;
-    log(`Subscribed to ${SYMBOL}. No trade has been placed.`);
+    },15000);
+
+    ws.onopen=()=>{
+      opened=true; clearTimeout(timer);
+      $('status').textContent='CONNECTED';
+      log('3) SUCCESS: authenticated Demo WebSocket opened.');
+
+      ws.send(JSON.stringify({ticks:SYMBOL,subscribe:1,req_id:101}));
+      ws.send(JSON.stringify({balance:1,subscribe:1,req_id:102}));
+      log('4) Requested V75 (1s) tick stream.');
+    };
+
+    ws.onmessage=e=>{
+      count++; $('messages').textContent=String(count);
+      const d=JSON.parse(e.data);
+
+      if(d.error){
+        log(`API error: ${d.error.code||''} ${d.error.message||''}`);
+        return;
+      }
+
+      if(d.msg_type==='tick'){
+        $('tick').textContent=Number(d.tick.quote).toFixed(2);
+        if(count<10) log(`V75 tick received: ${Number(d.tick.quote).toFixed(2)}`);
+      }
+
+      if(d.msg_type==='balance'){
+        log(`Demo balance stream active: ${d.balance.balance} ${d.balance.currency}`);
+      }
+    };
+
+    ws.onerror=()=>{
+      $('status').textContent='ERROR';
+      log('WebSocket onerror fired. Check the browser network/firewall.');
+    };
+
+    ws.onclose=e=>{
+      if(opened){
+        $('status').textContent='CLOSED';
+        log(`WebSocket closed. Code=${e.code}. Reason=${e.reason||'(none)'}`);
+      }
+    };
   }catch(e){
-    log(e.message); $("conn").textContent="Connection failed";
-  }finally{$("connect").disabled=false;}
-}
-async function proposal(contractType, stake, duration){
-  const d=await send({
-    proposal:1, amount:Number(stake), basis:"stake", contract_type:contractType,
-    currency:"USD", duration:Number(duration), duration_unit:"t",
-    underlying_symbol:SYMBOL
-  });
-  if(!d.proposal?.id) throw new Error("No proposal ID returned.");
-  return d.proposal;
-}
-async function buy(p, stake){
-  const price=Number(p.ask_price);
-  if(!Number.isFinite(price)||price<=0) throw new Error("Invalid ask price.");
-  const d=await send({buy:p.id,price});
-  if(!d.buy?.contract_id) throw new Error("No contract ID returned.");
-  return {id:String(d.buy.contract_id),buyPrice:price,stake};
-}
-function monitor(id,side,cycleId){
-  activeContracts.set(String(id),{id:String(id),side,cycleId,profit:0,status:"open",done:false});
-  ws.send(JSON.stringify({proposal_open_contract:1,contract_id:Number(id),subscribe:1}));
-}
-async function runCycle(){
-  if(!running || !connected || activeContracts.size>0) return;
-  const maxCycles = Number($("maxCycles").value);
-  const lossLimit = Number($("lossLimit").value);
-  if(cycleNo >= maxCycles){ running=false; $("stop").disabled=true; log(`Maximum demo cycles (${maxCycles}) reached. Bot stopped.`); return; }
-  if(sessionPnl <= -Math.abs(lossLimit)){ running=false; $("stop").disabled=true; log(`Session loss stop reached: ${sessionPnl.toFixed(2)} USD. Bot stopped.`); return; }
-
-  const s=sma5(); if(s===null) return;
-  const current=prices[prices.length-1];
-  if(current===s) return;
-
-  cycleNo++;
-  const cycleId=cycleNo;
-  const stake=Number($("stake").value);
-  const duration=Number($("duration").value);
-  const delay=Number($("delayMs").value);
-
-  const firstSide=current>s?"UP":"DOWN";
-  const secondSide=firstSide==="UP"?"DOWN":"UP";
-  const firstType=firstSide==="UP"?"ASIANU":"ASIAND";
-  const secondType=secondSide==="UP"?"ASIANU":"ASIAND";
-
-  log(`Cycle ${cycleId}: ${firstSide} first, then ${secondSide} after ${delay} ms. SMA=${s.toFixed(2)}, tick=${current.toFixed(2)}`);
-
-  let first, second;
-  try{
-    const p1=await proposal(firstType,stake,duration);
-    first=await buy(p1,stake);
-    log(`Cycle ${cycleId}: bought ${firstSide} ${first.id} at $${first.buyPrice.toFixed(2)}`);
-    monitor(first.id,firstSide,cycleId);
-
-    await new Promise(r=>setTimeout(r,delay));
-
-    if(!running) return;
-    const p2=await proposal(secondType,stake,duration);
-    second=await buy(p2,stake);
-    log(`Cycle ${cycleId}: bought ${secondSide} ${second.id} at $${second.buyPrice.toFixed(2)}`);
-    monitor(second.id,secondSide,cycleId);
-  }catch(e){
-    log(`Cycle ${cycleId} stopped before completion: ${e.message}`);
-    // If only the first contract was bought, keep monitoring it; do not repeat automatically.
-    running=false; $("stop").disabled=true; $("start").disabled=false;
+    $('status').textContent='FAILED';
+    log(`Failure: ${e.name||'Error'}: ${e.message}`);
+  }finally{
+    $('test').disabled=false;
   }
-}
-function checkCycleComplete(cycleId){
-  const rows=[...activeContracts.values()].filter(x=>x.cycleId===cycleId);
-  if(rows.length<2 || !rows.every(x=>x.done)) return;
-
-  const up=rows.find(x=>x.side==="UP"), down=rows.find(x=>x.side==="DOWN");
-  const upP=up?up.profit:0, downP=down?down.profit:0, cyc=upP+downP;
-  setPnl(sessionPnl+cyc);
-
-  const tr=document.createElement("tr");
-  tr.innerHTML=`<td>${cycleId}</td><td>${rows[0].side}</td><td>${rows[1].side}</td>
-  <td>${upP>=0?"+":""}$${upP.toFixed(2)}</td><td>${downP>=0?"+":""}$${downP.toFixed(2)}</td>
-  <td>${cyc>=0?"+":""}$${cyc.toFixed(2)}</td><td>${rows.map(x=>x.result).join(" / ")}</td>`;
-  $("cycles").prepend(tr);
-
-  rows.forEach(x=>activeContracts.delete(x.id));
-  log(`Cycle ${cycleId} complete: P/L ${cyc>=0?"+":""}$${cyc.toFixed(2)}. Session ${sessionPnl>=0?"+":""}$${sessionPnl.toFixed(2)}`);
-
-  if(running) setTimeout(runCycle,250);
-}
-$("connect").onclick=connect;
-$("start").onclick=()=>{
-  if(!connected){log("Connect first.");return;}
-  if(Number($("stake").value)!==0.35){log("For v1, keep base stake at exactly $0.35.");return;}
-  running=true; cycleNo=0; sessionPnl=0; setPnl(0); $("start").disabled=true; $("stop").disabled=false; log(`DEMO TRADING STARTED — flat $0.35; max ${$("maxCycles").value} cycles; stop at -$${$("lossLimit").value}.`);
-  runCycle();
-};
-$("stop").onclick=()=>{
-  running=false; $("stop").disabled=true; $("start").disabled=!connected;
-  log("STOP requested. No new cycle will start. Existing contracts are still monitored until settlement.");
 };
 })();
 </script>
