@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>V75 Bot Diagnostic</title>
+<style>
+body{font-family:Arial,sans-serif;margin:24px;background:#f5f6f8;color:#111827}
+.card{max-width:900px;margin:auto;background:#fff;padding:24px;border-radius:14px;box-shadow:0 4px 18px rgba(0,0,0,.08)}
+label{display:block;margin-top:14px;font-weight:600}
+input{width:100%;box-sizing:border-box;padding:10px;margin-top:6px;border:1px solid #cbd5e1;border-radius:8px}
+button{margin-top:16px;padding:10px 16px;border:0;border-radius:8px;background:#2563eb;color:white;cursor:pointer}
+#public{background:#0f766e}
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:18px}
+.metric{background:#f8fafc;padding:14px;border-radius:10px}
+.metric b{display:block;margin-top:4px}
+#log{margin-top:18px;background:#0f172a;color:#e5e7eb;padding:14px;border-radius:10px;min-height:260px;white-space:pre-wrap;font-family:Consolas,monospace;font-size:12px;overflow:auto}
+.warn{margin-top:16px;padding:12px;border:1px solid #fdba74;background:#fff7ed;border-radius:10px}
+</style>
+</head>
+<body>
+<div class="card">
+<h1>V75 Bot Diagnostic</h1>
+<p>This page makes <strong>no trades</strong>. It tests (1) the public V75 WebSocket and (2) your authenticated OTP request.</p>
+
+<button id="public">1. Test public V75 feed</button>
+
+<label>Deriv App ID
+<input id="appId" placeholder="Your V75 Asian Bot App ID"></label>
+<label>Demo Options Account ID
+<input id="accountId" placeholder="DOT..."></label>
+<label>PAT
+<input id="pat" type="password" autocomplete="off" placeholder="Your V75 BOT DEMO PAT"></label>
+
+<button id="auth">2. Test authenticated OTP</button>
+
+<div class="grid">
+<div class="metric">Public feed<b id="pubStatus">Not tested</b></div>
+<div class="metric">OTP request<b id="otpStatus">Not tested</b></div>
+</div>
+
+<div class="warn"><strong>Do not send your PAT or the returned OTP URL in chat.</strong> The log below may contain HTTP status/error text but is coded not to print the PAT or OTP URL.</div>
+<div id="log"></div>
+</div>
+
+<script>
+(() => {
+const API='https://api.derivws.com';
+const SYMBOL='1HZ75V';
+const $=id=>document.getElementById(id);
+function log(x){$('log').textContent += '['+new Date().toLocaleTimeString()+'] '+x+'\\n';}
+function safeJson(o){
+  try{
+    const s=JSON.stringify(o);
+    return s.replace(/(otp=)[^&"}\s]+/gi,'$1[REDACTED]');
+  }catch{return String(o)}
+}
+
+$('public').onclick=async()=>{
+  $('pubStatus').textContent='Testing...';
+  log('Opening public WebSocket...');
+  try{
+    const ws=new WebSocket('wss://api.derivws.com/trading/v1/options/ws/public');
+    let got=false;
+    const timer=setTimeout(()=>{if(!got){ws.close();$('pubStatus').textContent='Timeout';log('Public WebSocket timed out after 10 seconds.');}},10000);
+    ws.onopen=()=>{
+      log('Public WebSocket connected.');
+      ws.send(JSON.stringify({ticks:SYMBOL,subscribe:1,req_id:11}));
+    };
+    ws.onmessage=e=>{
+      const d=JSON.parse(e.data);
+      if(d.msg_type==='tick'){
+        got=true; clearTimeout(timer);
+        $('pubStatus').textContent='WORKING';
+        log('SUCCESS: received V75 tick '+Number(d.tick.quote).toFixed(2));
+        ws.close();
+      } else if(d.error){
+        clearTimeout(timer); $('pubStatus').textContent='API error';
+        log('Public API error: '+safeJson(d.error)); ws.close();
+      }
+    };
+    ws.onerror=()=>{clearTimeout(timer);$('pubStatus').textContent='WebSocket error';log('Public WebSocket error (browser/network).');};
+  }catch(e){
+    $('pubStatus').textContent='Browser error'; log('Public feed exception: '+e.message);
+  }
+};
+
+$('auth').onclick=async()=>{
+  $('otpStatus').textContent='Testing...';
+  const app=$('appId').value.trim(), acct=$('accountId').value.trim(), pat=$('pat').value.trim();
+  if(!app||!acct||!pat){log('Enter App ID, Demo Options account ID and PAT.'); return;}
+  if(!/^DOT/i.test(acct)){log('Safety check: account ID must begin with DOT for this diagnostic.'); return;}
+  log('Sending OTP POST to Deriv...');
+  try{
+    const r=await fetch(API+'/trading/v1/options/accounts/'+encodeURIComponent(acct)+'/otp',{
+      method:'POST',
+      headers:{
+        'Authorization':'Bearer '+pat,
+        'Deriv-App-ID':app
+      }
+    });
+    const text=await r.text();
+    log('OTP HTTP status: '+r.status);
+    if(r.ok){
+      $('otpStatus').textContent='HTTP 200';
+      log('SUCCESS: Deriv returned HTTP 200 from the browser. The remaining problem would be WebSocket connection handling.');
+      try{
+        const j=JSON.parse(text);
+        if(j?.data?.url) log('A WebSocket URL was returned (URL redacted).');
+      }catch{}
+    }else{
+      $('otpStatus').textContent='HTTP '+r.status;
+      log('OTP error body (credential fields omitted): '+text.replace(/otp=[^&"}\s]+/gi,'otp=[REDACTED]'));
+    }
+  }catch(e){
+    $('otpStatus').textContent='FETCH FAILED';
+    log('BROWSER FETCH ERROR: '+e.name+': '+e.message);
+    log('If this is a CORS/preflight error, the browser will show it in DevTools Console too.');
+  }
+};
+})();
+</script>
+</body>
+</html>
