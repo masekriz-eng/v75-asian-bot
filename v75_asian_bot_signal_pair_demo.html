@@ -3,54 +3,43 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>V75 Asian Bot - Signal Pair Demo</title>
+<title>V75 Asian Bot - Demo Proposal Test</title>
 <style>
 body{font-family:Arial,sans-serif;margin:24px;background:#f5f6f8;color:#111827}
-.card{max-width:1040px;margin:auto;background:#fff;padding:24px;border-radius:14px;box-shadow:0 4px 18px rgba(0,0,0,.08)}
-h1{margin:0 0 6px}.sub{color:#4b5563}
-label{display:block;margin-top:13px;font-weight:600}
+.card{max-width:900px;margin:auto;background:#fff;padding:24px;border-radius:14px;box-shadow:0 4px 18px rgba(0,0,0,.08)}
+label{display:block;margin-top:14px;font-weight:600}
 input{width:100%;box-sizing:border-box;padding:10px;margin-top:6px;border:1px solid #cbd5e1;border-radius:8px}
-button{margin-top:16px;padding:11px 17px;border:0;border-radius:8px;background:#2563eb;color:#fff;cursor:pointer}
+button{margin-top:16px;padding:10px 16px;border:0;border-radius:8px;background:#2563eb;color:#fff;cursor:pointer}
 button:disabled{opacity:.5;cursor:not-allowed}
-.grid{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-top:18px}
-.metric{background:#f8fafc;padding:13px;border-radius:10px}.metric b{display:block;margin-top:4px;font-size:17px}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:18px}
+.metric{background:#f8fafc;padding:14px;border-radius:10px}.metric b{display:block;margin-top:4px;font-size:19px}
+#log{margin-top:18px;background:#0f172a;color:#e5e7eb;padding:14px;border-radius:10px;min-height:280px;white-space:pre-wrap;font-family:Consolas,monospace;font-size:12px;overflow:auto}
 .warn{margin-top:16px;padding:12px;border:1px solid #fdba74;background:#fff7ed;border-radius:10px}
-#log{margin-top:18px;background:#0f172a;color:#e5e7eb;padding:14px;border-radius:10px;min-height:300px;white-space:pre-wrap;font-family:Consolas,monospace;font-size:12px;overflow:auto}
-table{width:100%;border-collapse:collapse;margin-top:18px}th,td{padding:9px;border-bottom:1px solid #e5e7eb;text-align:left}
 </style>
 </head>
 <body>
 <div class="card">
-<h1>V75 Asian Bot — Signal Pair Demo</h1>
-<p class="sub">One demo pair only. Signal: Last Tick vs SMA(5). $0.35 flat stake. 1-second stagger. No Martingale and no automatic repeat.</p>
+<h1>V75 Asian Bot — Demo Proposal Test</h1>
+<p>This page is <strong>DEMO-ONLY</strong>. It requests an Asian Up proposal but <strong>does not buy a contract</strong>.</p>
 
-<label>Deriv App ID<input id="appId" placeholder="Your App ID"></label>
+<label>Deriv App ID<input id="appId" placeholder="Your V75 Asian Bot App ID"></label>
 <label>Demo Options Account ID<input id="accountId" value="DOT94618672"></label>
-<label>Personal Access Token (PAT)<input id="pat" type="password" autocomplete="off" placeholder="Enter PAT locally"></label>
-<label>Stake (USD)<input id="stake" type="number" value="0.35" min="0.35" max="0.35" step="0.01"></label>
-<label>Expiry (ticks)<input id="duration" type="number" value="5" min="1" max="10" step="1"></label>
-<label>Delay (milliseconds)<input id="delay" type="number" value="1000" min="1000" max="1000" step="100"></label>
+<label>PAT<input id="pat" type="password" autocomplete="off" placeholder="Enter PAT locally — never send it in chat"></label>
 
-<button id="run">Run ONE Signal-Driven Pair</button>
+<label>Stake (USD)<input id="stake" type="number" value="0.35" min="0.35" step="0.01"></label>
+<label>Expiry (ticks)<input id="duration" type="number" value="5" min="1" max="10" step="1"></label>
+
+<button id="run">Test Demo Connection + ASIANU Proposal</button>
 
 <div class="warn">
-<strong>Safety:</strong> Demo DOT account only. Exactly two buy operations per click.
-No real-account endpoint, no Martingale, no automatic repeat.
+<strong>Safety:</strong> No buy/sell command exists in this page. Your PAT is held only in page memory and is never printed to the log.
 </div>
 
 <div class="grid">
-<div class="metric">Connection<b id="conn">—</b></div>
+<div class="metric">WebSocket<b id="status">Not connected</b></div>
 <div class="metric">V75 tick<b id="tick">—</b></div>
-<div class="metric">SMA(5)<b id="sma">—</b></div>
-<div class="metric">Signal<b id="signal">—</b></div>
-<div class="metric">Pair P/L<b id="pnl">$0.00</b></div>
-<div class="metric">Status<b id="status">READY</b></div>
+<div class="metric">Proposal<b id="proposal">Not tested</b></div>
 </div>
-
-<table>
-<thead><tr><th>Side</th><th>Contract</th><th>Buy</th><th>Status</th><th>P/L</th></tr></thead>
-<tbody id="rows"></tbody>
-</table>
 
 <div id="log"></div>
 </div>
@@ -58,188 +47,101 @@ No real-account endpoint, no Martingale, no automatic repeat.
 <script>
 (() => {
 const API='https://api.derivws.com', SYMBOL='1HZ75V';
-let ws=null, reqId=5000, prices=[], contracts={}, pairPnl=0, started=false;
+let ws=null, req=1;
 
 const $=id=>document.getElementById(id);
-function log(s){$('log').textContent += '['+new Date().toLocaleTimeString()+'] '+s+'\\n';$('log').scrollTop=$('log').scrollHeight;}
-function sma5(){
-  if(prices.length<5)return null;
-  const a=prices.slice(-5);
-  return a.reduce((x,y)=>x+y,0)/5;
-}
-function request(payload){
-  const id=reqId++;
+function log(s){$('log').textContent += '['+new Date().toLocaleTimeString()+'] '+s+'\\n'; $('log').scrollTop=$('log').scrollHeight;}
+
+function send(payload){
+  const req_id=req++;
+  ws.send(JSON.stringify({...payload,req_id}));
   return new Promise((resolve,reject)=>{
-    const t=setTimeout(()=>{ws.removeEventListener('message',handler);reject(new Error('Request timeout'));},15000);
-    function handler(e){
-      let d;try{d=JSON.parse(e.data)}catch{return}
-      if(d.req_id!==id)return;
-      ws.removeEventListener('message',handler);clearTimeout(t);
-      if(d.error)reject(new Error(`${d.error.code||'API'}: ${d.error.message||''}`));
+    const t=setTimeout(()=>reject(new Error('Request timeout')),15000);
+    const handler=(e)=>{
+      const d=JSON.parse(e.data);
+      if(d.req_id!==req_id) return;
+      ws.removeEventListener('message',handler);
+      clearTimeout(t);
+      if(d.error) reject(new Error(`${d.error.code||'API'}: ${d.error.message||''}`));
       else resolve(d);
-    }
+    };
     ws.addEventListener('message',handler);
-    ws.send(JSON.stringify({...payload,req_id:id}));
   });
 }
+
 async function getOtp(app,acct,pat){
   const r=await fetch(`${API}/trading/v1/options/accounts/${encodeURIComponent(acct)}/otp`,{
     method:'POST',
     headers:{'Authorization':`Bearer ${pat}`,'Deriv-App-ID':app}
   });
-  if(!r.ok)throw new Error(`OTP HTTP ${r.status}`);
+  if(!r.ok) throw new Error(`OTP HTTP ${r.status}`);
   const d=await r.json();
-  if(!d?.data?.url)throw new Error('No WebSocket URL returned');
-  if(!d.data.url.includes('/options/ws/demo'))throw new Error('Safety stop: not Demo endpoint');
+  if(!d?.data?.url) throw new Error('No WebSocket URL returned.');
+  if(!d.data.url.includes('/options/ws/demo')) throw new Error('Safety stop: returned endpoint is not Demo.');
   return d.data.url;
 }
-async function connect(url){
-  ws=new WebSocket(url);
-  await new Promise((resolve,reject)=>{
-    const t=setTimeout(()=>reject(new Error('WebSocket open timeout')),15000);
-    ws.onopen=()=>{clearTimeout(t);resolve()};
-    ws.onerror=()=>{clearTimeout(t);reject(new Error('WebSocket error'))};
-  });
 
-  $('conn').textContent='CONNECTED';
-  log('Authenticated Demo WebSocket connected.');
-
-  ws.onmessage=e=>{
-    let d;try{d=JSON.parse(e.data)}catch{return}
-    if(d.error){log(`API error: ${d.error.code||''} ${d.error.message||''}`);return;}
-
-    if(d.msg_type==='tick'){
-      const q=Number(d.tick.quote);
-      prices.push(q);
-      if(prices.length>1000)prices.shift();
-      $('tick').textContent=q.toFixed(2);
-      const s=sma5();
-      $('sma').textContent=s===null?'waiting...':s.toFixed(2);
-    }
-
-    if(d.msg_type==='proposal_open_contract'){
-      const c=d.proposal_open_contract||{};
-      const id=String(c.contract_id||'');
-      const rec=contracts[id];
-      if(!rec)return;
-
-      rec.pnl=Number(c.profit||0);
-      rec.status=c.status||'open';
-      rec.sold=Boolean(c.is_sold)||rec.status==='won'||rec.status==='lost';
-
-      if(rec.sold&&!rec.done){
-        rec.done=true;
-        pairPnl += rec.pnl;
-        $('pnl').textContent=(pairPnl>=0?'+$':'-$')+Math.abs(pairPnl).toFixed(2);
-
-        const row=document.querySelector(`tr[data-id="${id}"]`);
-        if(row){
-          row.children[3].textContent=rec.status.toUpperCase();
-          row.children[4].textContent=(rec.pnl>=0?'+$':'-$')+Math.abs(rec.pnl).toFixed(2);
-        }
-
-        log(`${rec.side} settled: ${rec.status}, P/L ${rec.pnl>=0?'+':''}$${rec.pnl.toFixed(2)}`);
-
-        if(Object.values(contracts).length===2 && Object.values(contracts).every(x=>x.done)){
-          $('status').textContent='PAIR COMPLETE';
-          log(`PAIR COMPLETE: ${pairPnl>=0?'+':''}$${pairPnl.toFixed(2)}.`);
-        }
-      }
-    }
-  };
-}
-function addRow(side,id,ask){
-  const tr=document.createElement('tr');
-  tr.dataset.id=id;
-  tr.innerHTML=`<td>${side}</td><td>${id}</td><td>$${ask.toFixed(2)}</td><td>OPEN</td><td>—</td>`;
-  $('rows').appendChild(tr);
-}
-async function buy(type,side){
+async function main(){
+  const app=$('appId').value.trim(), acct=$('accountId').value.trim(), pat=$('pat').value.trim();
   const stake=Number($('stake').value), duration=Number($('duration').value);
 
-  const pr=await request({
-    proposal:1,
-    amount:stake,
-    basis:'stake',
-    contract_type:type,
-    currency:'USD',
-    duration,
-    duration_unit:'t',
-    underlying_symbol:SYMBOL
-  });
-
-  const ask=Number(pr.proposal.ask_price);
-  const b=await request({buy:pr.proposal.id,price:ask});
-  const id=String(b.buy.contract_id);
-
-  contracts[id]={side,id,pnl:0,status:'open',done:false};
-  addRow(side,id,ask);
-
-  log(`${side}: purchased contract ${id} at $${ask.toFixed(2)}.`);
-  ws.send(JSON.stringify({
-    proposal_open_contract:1,
-    contract_id:Number(id),
-    subscribe:1,
-    req_id:reqId++
-  }));
-}
-$('run').onclick=async()=>{
-  if(started){log('This page permits one pair only.');return;}
-
-  const stake=Number($('stake').value), delay=Number($('delay').value);
-  if(stake!==0.35){log('Safety stop: stake must be $0.35.');return;}
-  if(delay!==1000){log('Safety stop: delay must be exactly 1000 ms.');return;}
-
-  started=true;
-  $('run').disabled=true;
-  $('status').textContent='AUTHENTICATING...';
+  if(!app||!acct||!pat){log('Enter App ID, Demo account ID and PAT.'); return;}
+  if(!/^DOT/i.test(acct)){log('Safety stop: Demo Options account must begin with DOT.'); return;}
+  if(stake!==0.35){log('For this first test, keep stake at exactly $0.35.'); return;}
+  $('run').disabled=true; $('status').textContent='Authenticating...';
 
   try{
-    const app=$('appId').value.trim();
-    const acct=$('accountId').value.trim();
-    const pat=$('pat').value.trim();
-    if(!app||!acct||!pat)throw new Error('Enter App ID, Demo account ID and PAT.');
-    if(!/^DOT/i.test(acct))throw new Error('Safety stop: Demo account must begin with DOT.');
+    const url=await getOtp(app,acct,pat);
+    log('OTP accepted. Opening authenticated Demo WebSocket...');
 
-    await connect(await getOtp(app,acct,pat));
+    ws=new WebSocket(url);
+    await new Promise((resolve,reject)=>{
+      const t=setTimeout(()=>reject(new Error('WebSocket open timeout')),15000);
+      ws.onopen=()=>{clearTimeout(t); resolve();};
+      ws.onerror=()=>{clearTimeout(t); reject(new Error('WebSocket error'));};
+    });
 
-    // Allow several live ticks to arrive before evaluating the signal.
-    await new Promise(r=>setTimeout(r,1200));
+    $('status').textContent='CONNECTED';
+    log('Authenticated Demo WebSocket connected.');
 
-    const current=prices[prices.length-1];
-    const avg=sma5();
-    if(avg===null)throw new Error('Not enough ticks to calculate SMA(5).');
+    ws.onmessage=(e)=>{
+      try{
+        const d=JSON.parse(e.data);
+        if(d.msg_type==='tick') $('tick').textContent=Number(d.tick.quote).toFixed(2);
+      }catch{}
+    };
 
-    if(current===avg){
-      $('signal').textContent='NO TRADE (EQUAL)';
-      $('status').textContent='NO TRADE';
-      log(`No trade: Last Tick equals SMA(5) at ${current.toFixed(2)}.`);
-      return;
-    }
-
-    const firstSide=current>avg?'UP':'DOWN';
-    const secondSide=firstSide==='UP'?'DOWN':'UP';
-    const firstType=firstSide==='UP'?'ASIANU':'ASIAND';
-    const secondType=secondSide==='UP'?'ASIANU':'ASIAND';
-
-    $('signal').textContent=`${firstSide} → ${secondSide}`;
-    log(`Signal: ${current.toFixed(2)} ${current>avg?'>':'<'} SMA(5) ${avg.toFixed(2)}.`);
-    $('status').textContent=`BUYING ${firstSide}...`;
-
-    await buy(firstType,firstSide);
-
+    ws.send(JSON.stringify({ticks:SYMBOL,subscribe:1,req_id:9001}));
     await new Promise(r=>setTimeout(r,1000));
 
-    $('status').textContent=`BUYING ${secondSide}...`;
-    await buy(secondType,secondSide);
+    log(`Requesting ASIANU proposal: stake=$${stake.toFixed(2)}, duration=${duration} ticks...`);
 
-    $('status').textContent='MONITORING';
-    log('Both signal-driven contracts purchased. Waiting for settlement.');
+    const d=await send({
+      proposal:1,
+      amount:stake,
+      basis:'stake',
+      contract_type:'ASIANU',
+      currency:'USD',
+      duration:duration,
+      duration_unit:'t',
+      underlying_symbol:SYMBOL,
+    });
+
+    const pr=d.proposal;
+    $('proposal').textContent='SUCCESS';
+    log(`Proposal received. Ask price: $${Number(pr.ask_price).toFixed(2)} | Payout: $${Number(pr.payout).toFixed(2)}`);
+    log(`Proposal ID received successfully.`);
+    log('NO CONTRACT WAS PURCHASED.');
   }catch(e){
     $('status').textContent='FAILED';
-    log('PAIR TEST FAILED: '+e.message);
+    $('proposal').textContent='FAILED';
+    log('TEST FAILED: '+e.message);
+  }finally{
+    $('run').disabled=false;
   }
-};
+}
+
+$('run').onclick=main;
 })();
 </script>
 </body>
