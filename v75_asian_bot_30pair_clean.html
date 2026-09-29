@@ -1,0 +1,472 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>V75 Asian Bot - 30 Pair Demo (Clean)</title>
+<style>
+body{font-family:Arial,sans-serif;margin:24px;background:#f5f6f8;color:#111827}
+.card{max-width:1100px;margin:auto;background:#fff;padding:24px;border-radius:14px;box-shadow:0 4px 18px rgba(0,0,0,.08)}
+h1{margin:0 0 6px}.sub{color:#4b5563}
+label{display:block;margin-top:12px;font-weight:600}
+input{width:100%;box-sizing:border-box;padding:10px;margin-top:6px;border:1px solid #cbd5e1;border-radius:8px}
+button{margin-top:16px;margin-right:8px;padding:11px 17px;border:0;border-radius:8px;background:#2563eb;color:#fff;cursor:pointer}
+button.stop{background:#dc2626}button.csv{background:#475569}
+button:disabled{opacity:.5;cursor:not-allowed}
+.grid{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-top:18px}
+.metric{background:#f8fafc;padding:12px;border-radius:10px}.metric b{display:block;margin-top:4px;font-size:18px}
+.warn{margin-top:16px;padding:12px;border:1px solid #fdba74;background:#fff7ed;border-radius:10px}
+.good{margin-top:16px;padding:12px;border:1px solid #86efac;background:#f0fdf4;border-radius:10px}
+#log{margin-top:18px;background:#0f172a;color:#e5e7eb;padding:14px;border-radius:10px;min-height:240px;max-height:360px;white-space:pre-wrap;font-family:Consolas,monospace;font-size:12px;overflow:auto}
+table{width:100%;border-collapse:collapse;margin-top:18px;font-size:13px}
+th,td{padding:8px;border-bottom:1px solid #e5e7eb;text-align:left}
+</style>
+</head>
+<body>
+<div class="card">
+<h1>V75 (1s) Asian Bot — 30 Pair Demo</h1>
+<p class="sub">Clean research build using the verified Deriv authentication path. Flat $0.35, 5 ticks, 1-second stagger. Demo only.</p>
+
+<label>Deriv App ID<input id="appId" placeholder="Paste your V75 Asian Bot App ID"></label>
+<label>Demo Options Account ID<input id="accountId" value="DOT94618672"></label>
+<label>Personal Access Token (PAT)<input id="pat" type="password" autocomplete="off" placeholder="Paste PAT locally"></label>
+
+<label>Stake (USD)<input id="stake" type="number" value="0.35" min="0.35" max="0.35" step="0.01"></label>
+<label>Expiry (ticks)<input id="duration" type="number" value="5" min="1" max="10" step="1"></label>
+<label>Delay (milliseconds)<input id="delay" type="number" value="1000" min="1000" max="1000" step="100"></label>
+<label>Pairs to run<input id="pairs" type="number" value="30" min="1" max="30" step="1"></label>
+
+<button id="start">START DEMO TEST</button>
+<button id="stop" class="stop" disabled>STOP AFTER CURRENT PAIR</button>
+<button id="csv" class="csv" disabled>DOWNLOAD CSV</button>
+
+<div class="warn"><strong>Demo only:</strong> This page only accepts a DOT Demo Options account. It has no live-account endpoint. It uses flat $0.35 stakes and does not apply Martingale.</div>
+<div class="good"><strong>Research objective:</strong> measure BOTH-WIN, MIXED and BOTH-LOSS rates and pair expectancy before changing money management.</div>
+
+<div class="grid">
+<div class="metric">Status<b id="status">READY</b></div>
+<div class="metric">Pair<b id="pair">0 / 30</b></div>
+<div class="metric">V75 tick<b id="tick">—</b></div>
+<div class="metric">SMA(5)<b id="sma">—</b></div>
+<div class="metric">Both loss<b id="ll">0</b></div>
+<div class="metric">Total P/L<b id="pnl">$0.00</b></div>
+</div>
+
+<table>
+<thead><tr><th>#</th><th>Signal</th><th>Up</th><th>Down</th><th>Outcome</th><th>Pair P/L</th></tr></thead>
+<tbody id="rows"></tbody>
+</table>
+
+<div id="log"></div>
+</div>
+
+<script>
+(() => {
+const API='https://api.derivws.com';
+const SYMBOL='1HZ75V';
+
+let ws=null;
+let nextReqId=10000;
+let prices=[];
+let running=false;
+let stopAfterPair=false;
+let pairNo=0;
+let sessionPnl=0;
+let bothWin=0;
+let mixed=0;
+let bothLoss=0;
+let records=[];
+let activePair=null;
+let requestWaiters=new Map();
+
+const $=id=>document.getElementById(id);
+
+function log(msg){
+  $('log').textContent += `[${new Date().toLocaleTimeString()}] ${msg}\n`;
+  $('log').scrollTop=$('log').scrollHeight;
+}
+
+function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
+
+function sma5(){
+  if(prices.length<5) return null;
+  const a=prices.slice(-5);
+  return a.reduce((x,y)=>x+y,0)/5;
+}
+
+function send(payload){
+  const req_id=nextReqId++;
+  return new Promise((resolve,reject)=>{
+    const timer=setTimeout(()=>{
+      requestWaiters.delete(req_id);
+      reject(new Error('Request timed out'));
+    },15000);
+    requestWaiters.set(req_id,{resolve,reject,timer});
+    ws.send(JSON.stringify({...payload,req_id}));
+  });
+}
+
+async function getOtp(appId,accountId,pat){
+  const url=`${API}/trading/v1/options/accounts/${encodeURIComponent(accountId)}/otp`;
+  const response=await fetch(url,{
+    method:'POST',
+    headers:{
+      'Authorization':`Bearer ${pat}`,
+      'Deriv-App-ID':appId
+    }
+  });
+  if(!response.ok){
+    throw new Error(`OTP HTTP ${response.status}`);
+  }
+  const data=await response.json();
+  if(!data?.data?.url){
+    throw new Error('Deriv returned no WebSocket URL');
+  }
+  if(!String(data.data.url).includes('/options/ws/demo')){
+    throw new Error('Safety stop: returned WebSocket is not Demo');
+  }
+  return data.data.url;
+}
+
+async function connect(){
+  const appId=$('appId').value.trim();
+  const accountId=$('accountId').value.trim();
+  const pat=$('pat').value.trim();
+
+  if(!appId||!accountId||!pat) throw new Error('Enter App ID, Demo account ID and PAT.');
+  if(!/^DOT/i.test(accountId)) throw new Error('Safety stop: use a Demo DOT Options account.');
+
+  log('Requesting fresh Demo OTP...');
+  const url=await getOtp(appId,accountId,pat);
+  log('OTP accepted. Opening authenticated Demo WebSocket...');
+
+  ws=new WebSocket(url);
+
+  await new Promise((resolve,reject)=>{
+    const timer=setTimeout(()=>reject(new Error('WebSocket open timeout')),15000);
+    ws.addEventListener('open',()=>{
+      clearTimeout(timer);
+      resolve();
+    },{once:true});
+    ws.addEventListener('error',()=>{
+      clearTimeout(timer);
+      reject(new Error('WebSocket connection error'));
+    },{once:true});
+  });
+
+  $('status').textContent='CONNECTED';
+  log('Authenticated Demo WebSocket connected.');
+
+  ws.onmessage=event=>{
+    let msg;
+    try{ msg=JSON.parse(event.data); }catch{ return; }
+
+    if(msg.req_id && requestWaiters.has(msg.req_id)){
+      const waiter=requestWaiters.get(msg.req_id);
+      requestWaiters.delete(msg.req_id);
+      clearTimeout(waiter.timer);
+      if(msg.error){
+        waiter.reject(new Error(`${msg.error.code||'API'}: ${msg.error.message||''}`));
+      }else{
+        waiter.resolve(msg);
+      }
+      return;
+    }
+
+    if(msg.error){
+      log(`API error: ${msg.error.code||''} ${msg.error.message||''}`);
+      return;
+    }
+
+    if(msg.msg_type==='tick'){
+      const q=Number(msg.tick.quote);
+      if(Number.isFinite(q)){
+        prices.push(q);
+        if(prices.length>1000) prices.shift();
+        $('tick').textContent=q.toFixed(2);
+        const s=sma5();
+        $('sma').textContent=s===null?'waiting...':s.toFixed(2);
+      }
+    }
+
+    if(msg.msg_type==='proposal_open_contract'){
+      const c=msg.proposal_open_contract||{};
+      const id=String(c.contract_id||'');
+      if(!activePair || !activePair.contracts[id]) return;
+
+      const rec=activePair.contracts[id];
+      rec.pnl=Number(c.profit||0);
+      rec.status=c.status||'open';
+      rec.done=Boolean(c.is_sold)||rec.status==='won'||rec.status==='lost';
+
+      if(rec.done && !rec.counted){
+        rec.counted=true;
+        log(`${rec.side} settled: ${rec.status}, P/L ${rec.pnl>=0?'+':''}$${rec.pnl.toFixed(2)}`);
+
+        const finished=Object.values(activePair.contracts).every(x=>x.done);
+        if(finished) finishPair();
+      }
+    }
+  };
+
+  ws.send(JSON.stringify({
+    ticks:SYMBOL,
+    subscribe:1,
+    req_id:nextReqId++
+  }));
+  log('Subscribed to V75 (1s) tick stream.');
+}
+
+async function buy(type,side){
+  const stake=Number($('stake').value);
+  const duration=Number($('duration').value);
+
+  const proposalResponse=await send({
+    proposal:1,
+    amount:stake,
+    basis:'stake',
+    contract_type:type,
+    currency:'USD',
+    duration:duration,
+    duration_unit:'t',
+    underlying_symbol:SYMBOL
+  });
+
+  const proposal=proposalResponse.proposal;
+  const ask=Number(proposal.ask_price);
+  if(!Number.isFinite(ask)||ask<=0) throw new Error('Invalid proposal ask price.');
+
+  log(`${side} proposal: stake=$${stake.toFixed(2)}, ask=$${ask.toFixed(2)}, payout=$${Number(proposal.payout).toFixed(2)}`);
+
+  const buyResponse=await send({
+    buy:proposal.id,
+    price:ask
+  });
+
+  const contractId=String(buyResponse.buy.contract_id);
+  activePair.contracts[contractId]={
+    id:contractId,
+    side,
+    pnl:0,
+    status:'open',
+    done:false,
+    counted:false
+  };
+
+  log(`${side} PURCHASED: contract ${contractId}`);
+
+  ws.send(JSON.stringify({
+    proposal_open_contract:1,
+    contract_id:Number(contractId),
+    subscribe:1,
+    req_id:nextReqId++
+  }));
+}
+
+function addPairRow(signal,up,down,outcome,pairPnl){
+  const tr=document.createElement('tr');
+  tr.innerHTML=`
+    <td>${pairNo}</td>
+    <td>${signal}</td>
+    <td>${up.status.toUpperCase()} ${up.pnl>=0?'+$':'-$'}${Math.abs(up.pnl).toFixed(2)}</td>
+    <td>${down.status.toUpperCase()} ${down.pnl>=0?'+$':'-$'}${Math.abs(down.pnl).toFixed(2)}</td>
+    <td>${outcome}</td>
+    <td>${pairPnl>=0?'+$':'-$'}${Math.abs(pairPnl).toFixed(2)}</td>`;
+  $('rows').appendChild(tr);
+}
+
+function finishPair(){
+  if(!activePair || activePair.finished) return;
+  activePair.finished=true;
+
+  const up=Object.values(activePair.contracts).find(x=>x.side==='UP');
+  const down=Object.values(activePair.contracts).find(x=>x.side==='DOWN');
+  if(!up||!down){
+    log('PAIR ERROR: missing Up or Down contract.');
+    running=false;
+    $('status').textContent='FAILED';
+    $('start').disabled=false;
+    $('stop').disabled=true;
+    return;
+  }
+
+  const upWin=up.pnl>0;
+  const downWin=down.pnl>0;
+  const pairPnl=up.pnl+down.pnl;
+  sessionPnl+=pairPnl;
+
+  let outcome='MIXED';
+  if(upWin&&downWin){bothWin++; outcome='BOTH WIN';}
+  if(!upWin&&!downWin){bothLoss++; outcome='BOTH LOSS';}
+  if((upWin&&!downWin)||(!upWin&&downWin)){mixed++;}
+
+  addPairRow(activePair.signal,up,down,outcome,pairPnl);
+  $('ll').textContent=String(bothLoss);
+  $('pnl').textContent=(sessionPnl>=0?'+$':'-$')+Math.abs(sessionPnl).toFixed(2);
+
+  records.push({
+    pair:pairNo,
+    timestamp:new Date().toISOString(),
+    signal:activePair.signal,
+    up_status:up.status,
+    up_pnl:up.pnl.toFixed(2),
+    down_status:down.status,
+    down_pnl:down.pnl.toFixed(2),
+    outcome,
+    pair_pnl:pairPnl.toFixed(2),
+    cumulative_pnl:sessionPnl.toFixed(2)
+  });
+
+  log(`PAIR ${pairNo} COMPLETE: ${outcome} | Pair ${pairPnl>=0?'+':''}$${pairPnl.toFixed(2)} | Session ${sessionPnl>=0?'+':''}$${sessionPnl.toFixed(2)}`);
+
+  activePair=null;
+
+  if(stopAfterPair || pairNo>=Number($('pairs').value)){
+    running=false;
+    $('stop').disabled=true;
+    $('start').disabled=false;
+    $('csv').disabled=false;
+    $('status').textContent='COMPLETE';
+    log(`TEST COMPLETE: ${pairNo} pairs | BOTH WIN=${bothWin} | MIXED=${mixed} | BOTH LOSS=${bothLoss} | TOTAL=${sessionPnl>=0?'+':''}$${sessionPnl.toFixed(2)}`);
+    return;
+  }
+
+  $('status').textContent='WAITING FOR NEXT SIGNAL';
+  setTimeout(runPair,300);
+}
+
+async function runPair(){
+  if(!running || stopAfterPair || activePair) return;
+
+  if(prices.length<5){
+    setTimeout(runPair,200);
+    return;
+  }
+
+  const current=prices.at(-1);
+  const avg=sma5();
+  if(avg===null){
+    setTimeout(runPair,200);
+    return;
+  }
+
+  // Equality: skip rather than force a Down trade.
+  if(current===avg){
+    $('status').textContent='NO TRADE — EQUAL';
+    setTimeout(runPair,200);
+    return;
+  }
+
+  pairNo++;
+  const first=current>avg?'UP':'DOWN';
+  const second=first==='UP'?'DOWN':'UP';
+
+  activePair={
+    signal:`${first} → ${second}`,
+    contracts:{},
+    finished:false
+  };
+
+  $('pair').textContent=`${pairNo} / ${Number($('pairs').value)}`;
+  log(`PAIR ${pairNo}: ${activePair.signal} | tick=${current.toFixed(2)} | SMA=${avg.toFixed(2)}`);
+  $('status').textContent=`BUYING ${first}...`;
+
+  await buy(first==='UP'?'ASIANU':'ASIAND',first);
+
+  if(!running || stopAfterPair) return;
+
+  await sleep(Number($('delay').value));
+
+  $('status').textContent=`BUYING ${second}...`;
+  await buy(second==='UP'?'ASIANU':'ASIAND',second);
+
+  $('status').textContent='MONITORING BOTH';
+}
+
+function downloadCsv(){
+  if(!records.length) return;
+
+  const fields=[
+    'pair','timestamp','signal','up_status','up_pnl',
+    'down_status','down_pnl','outcome','pair_pnl','cumulative_pnl'
+  ];
+
+  const rows=[fields.join(',')];
+  for(const rec of records){
+    rows.push(fields.map(f=>JSON.stringify(rec[f]??'')).join(','));
+  }
+
+  const blob=new Blob([rows.join('\\n')],{type:'text/csv;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;
+  a.download='v75_asian_30_pair_results.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+$('start').onclick=async()=>{
+  if(running) return;
+
+  const stake=Number($('stake').value);
+  const duration=Number($('duration').value);
+  const delay=Number($('delay').value);
+  const pairLimit=Number($('pairs').value);
+
+  if(stake!==0.35){log('Safety stop: stake must be exactly $0.35.');return;}
+  if(duration<1||duration>10){log('Expiry must be 1–10 ticks.');return;}
+  if(delay!==1000){log('Safety stop: delay must be exactly 1000 ms.');return;}
+  if(pairLimit<1||pairLimit>30){log('Pairs must be 1–30.');return;}
+
+  running=true;
+  stopAfterPair=false;
+  pairNo=0;
+  sessionPnl=0;
+  bothWin=0;
+  mixed=0;
+  bothLoss=0;
+  records=[];
+  prices=[];
+  activePair=null;
+
+  $('rows').innerHTML='';
+  $('ll').textContent='0';
+  $('pnl').textContent='$0.00';
+  $('csv').disabled=true;
+  $('start').disabled=true;
+  $('stop').disabled=false;
+  $('status').textContent='CONNECTING...';
+
+  try{
+    await connect();
+
+    const deadline=Date.now()+10000;
+    while(prices.length<5 && Date.now()<deadline){
+      await sleep(100);
+    }
+    if(prices.length<5){
+      throw new Error('Timed out waiting for five V75 ticks.');
+    }
+
+    $('status').textContent='RUNNING';
+    await runPair();
+  }catch(e){
+    running=false;
+    $('start').disabled=false;
+    $('stop').disabled=true;
+    $('status').textContent='FAILED';
+    log(`FAILED: ${e.message}`);
+  }
+};
+
+$('stop').onclick=()=>{
+  stopAfterPair=true;
+  $('stop').disabled=true;
+  log('STOP requested. The current pair will finish; no new pair will start.');
+};
+
+$('csv').onclick=downloadCsv;
+})();
+</script>
+</body>
+</html>
