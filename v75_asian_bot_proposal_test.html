@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>V75 Asian Bot - Demo Proposal Test</title>
+<style>
+body{font-family:Arial,sans-serif;margin:24px;background:#f5f6f8;color:#111827}
+.card{max-width:900px;margin:auto;background:#fff;padding:24px;border-radius:14px;box-shadow:0 4px 18px rgba(0,0,0,.08)}
+label{display:block;margin-top:14px;font-weight:600}
+input{width:100%;box-sizing:border-box;padding:10px;margin-top:6px;border:1px solid #cbd5e1;border-radius:8px}
+button{margin-top:16px;padding:10px 16px;border:0;border-radius:8px;background:#2563eb;color:#fff;cursor:pointer}
+button:disabled{opacity:.5;cursor:not-allowed}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:18px}
+.metric{background:#f8fafc;padding:14px;border-radius:10px}.metric b{display:block;margin-top:4px;font-size:19px}
+#log{margin-top:18px;background:#0f172a;color:#e5e7eb;padding:14px;border-radius:10px;min-height:280px;white-space:pre-wrap;font-family:Consolas,monospace;font-size:12px;overflow:auto}
+.warn{margin-top:16px;padding:12px;border:1px solid #fdba74;background:#fff7ed;border-radius:10px}
+</style>
+</head>
+<body>
+<div class="card">
+<h1>V75 Asian Bot — Demo Proposal Test</h1>
+<p>This page is <strong>DEMO-ONLY</strong>. It requests an Asian Up proposal but <strong>does not buy a contract</strong>.</p>
+
+<label>Deriv App ID<input id="appId" placeholder="Your V75 Asian Bot App ID"></label>
+<label>Demo Options Account ID<input id="accountId" value="DOT94618672"></label>
+<label>PAT<input id="pat" type="password" autocomplete="off" placeholder="Enter PAT locally — never send it in chat"></label>
+
+<label>Stake (USD)<input id="stake" type="number" value="0.35" min="0.35" step="0.01"></label>
+<label>Expiry (ticks)<input id="duration" type="number" value="5" min="1" max="10" step="1"></label>
+
+<button id="run">Test Demo Connection + ASIANU Proposal</button>
+
+<div class="warn">
+<strong>Safety:</strong> No buy/sell command exists in this page. Your PAT is held only in page memory and is never printed to the log.
+</div>
+
+<div class="grid">
+<div class="metric">WebSocket<b id="status">Not connected</b></div>
+<div class="metric">V75 tick<b id="tick">—</b></div>
+<div class="metric">Proposal<b id="proposal">Not tested</b></div>
+</div>
+
+<div id="log"></div>
+</div>
+
+<script>
+(() => {
+const API='https://api.derivws.com', SYMBOL='1HZ75V';
+let ws=null, req=1;
+
+const $=id=>document.getElementById(id);
+function log(s){$('log').textContent += '['+new Date().toLocaleTimeString()+'] '+s+'\\n'; $('log').scrollTop=$('log').scrollHeight;}
+
+function send(payload){
+  const req_id=req++;
+  ws.send(JSON.stringify({...payload,req_id}));
+  return new Promise((resolve,reject)=>{
+    const t=setTimeout(()=>reject(new Error('Request timeout')),15000);
+    const handler=(e)=>{
+      const d=JSON.parse(e.data);
+      if(d.req_id!==req_id) return;
+      ws.removeEventListener('message',handler);
+      clearTimeout(t);
+      if(d.error) reject(new Error(`${d.error.code||'API'}: ${d.error.message||''}`));
+      else resolve(d);
+    };
+    ws.addEventListener('message',handler);
+  });
+}
+
+async function getOtp(app,acct,pat){
+  const r=await fetch(`${API}/trading/v1/options/accounts/${encodeURIComponent(acct)}/otp`,{
+    method:'POST',
+    headers:{'Authorization':`Bearer ${pat}`,'Deriv-App-ID':app}
+  });
+  if(!r.ok) throw new Error(`OTP HTTP ${r.status}`);
+  const d=await r.json();
+  if(!d?.data?.url) throw new Error('No WebSocket URL returned.');
+  if(!d.data.url.includes('/options/ws/demo')) throw new Error('Safety stop: returned endpoint is not Demo.');
+  return d.data.url;
+}
+
+async function main(){
+  const app=$('appId').value.trim(), acct=$('accountId').value.trim(), pat=$('pat').value.trim();
+  const stake=Number($('stake').value), duration=Number($('duration').value);
+
+  if(!app||!acct||!pat){log('Enter App ID, Demo account ID and PAT.'); return;}
+  if(!/^DOT/i.test(acct)){log('Safety stop: Demo Options account must begin with DOT.'); return;}
+  if(stake!==0.35){log('For this first test, keep stake at exactly $0.35.'); return;}
+  $('run').disabled=true; $('status').textContent='Authenticating...';
+
+  try{
+    const url=await getOtp(app,acct,pat);
+    log('OTP accepted. Opening authenticated Demo WebSocket...');
+
+    ws=new WebSocket(url);
+    await new Promise((resolve,reject)=>{
+      const t=setTimeout(()=>reject(new Error('WebSocket open timeout')),15000);
+      ws.onopen=()=>{clearTimeout(t); resolve();};
+      ws.onerror=()=>{clearTimeout(t); reject(new Error('WebSocket error'));};
+    });
+
+    $('status').textContent='CONNECTED';
+    log('Authenticated Demo WebSocket connected.');
+
+    ws.onmessage=(e)=>{
+      try{
+        const d=JSON.parse(e.data);
+        if(d.msg_type==='tick') $('tick').textContent=Number(d.tick.quote).toFixed(2);
+      }catch{}
+    };
+
+    ws.send(JSON.stringify({ticks:SYMBOL,subscribe:1,req_id:9001}));
+    await new Promise(r=>setTimeout(r,1000));
+
+    log(`Requesting ASIANU proposal: stake=$${stake.toFixed(2)}, duration=${duration} ticks...`);
+
+    const d=await send({
+      proposal:1,
+      amount:stake,
+      basis:'stake',
+      contract_type:'ASIANU',
+      currency:'USD',
+      duration:duration,
+      duration_unit:'t',
+      underlying_symbol:SYMBOL,
+      subscribe:0
+    });
+
+    const pr=d.proposal;
+    $('proposal').textContent='SUCCESS';
+    log(`Proposal received. Ask price: $${Number(pr.ask_price).toFixed(2)} | Payout: $${Number(pr.payout).toFixed(2)}`);
+    log(`Proposal ID received successfully.`);
+    log('NO CONTRACT WAS PURCHASED.');
+  }catch(e){
+    $('status').textContent='FAILED';
+    $('proposal').textContent='FAILED';
+    log('TEST FAILED: '+e.message);
+  }finally{
+    $('run').disabled=false;
+  }
+}
+
+$('run').onclick=main;
+})();
+</script>
+</body>
+</html>
