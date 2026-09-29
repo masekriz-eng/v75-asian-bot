@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>V75 Asian Bot - 30 Pair Demo</title>
+<style>
+body{font-family:Arial,sans-serif;margin:24px;background:#f5f6f8;color:#111827}
+.card{max-width:1100px;margin:auto;background:#fff;padding:24px;border-radius:14px;box-shadow:0 4px 18px rgba(0,0,0,.08)}
+h1{margin:0 0 6px}.sub{color:#4b5563}
+label{display:block;margin-top:12px;font-weight:600}
+input{width:100%;box-sizing:border-box;padding:10px;margin-top:6px;border:1px solid #cbd5e1;border-radius:8px}
+button{margin-top:16px;margin-right:8px;padding:11px 17px;border:0;border-radius:8px;background:#2563eb;color:#fff;cursor:pointer}
+button.stop{background:#dc2626}button:disabled{opacity:.5;cursor:not-allowed}
+.grid{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-top:18px}
+.metric{background:#f8fafc;padding:12px;border-radius:10px}.metric b{display:block;margin-top:4px;font-size:18px}
+.warn{margin-top:16px;padding:12px;border:1px solid #fdba74;background:#fff7ed;border-radius:10px}
+.good{margin-top:16px;padding:12px;border:1px solid #86efac;background:#f0fdf4;border-radius:10px}
+#log{margin-top:18px;background:#0f172a;color:#e5e7eb;padding:14px;border-radius:10px;min-height:240px;max-height:360px;white-space:pre-wrap;font-family:Consolas,monospace;font-size:12px;overflow:auto}
+table{width:100%;border-collapse:collapse;margin-top:18px;font-size:13px}
+th,td{padding:8px;border-bottom:1px solid #e5e7eb;text-align:left}
+.num{text-align:right}
+</style>
+</head>
+<body>
+<div class="card">
+<h1>V75 (1s) Asian Bot — 30 Pair Demo</h1>
+<p class="sub">Research mode: flat $0.35, 5 ticks, 1-second stagger. No Martingale. No real-account endpoint.</p>
+
+<label>Deriv App ID<input id="appId" placeholder="Your App ID"></label>
+<label>Demo Options Account ID<input id="accountId" value="DOT94618672"></label>
+<label>Personal Access Token (PAT)<input id="pat" type="password" autocomplete="off" placeholder="Enter PAT locally"></label>
+
+<label>Stake (USD)<input id="stake" type="number" value="0.35" min="0.35" max="0.35" step="0.01"></label>
+<label>Expiry (ticks)<input id="duration" type="number" value="5" min="1" max="10" step="1"></label>
+<label>Delay (milliseconds)<input id="delay" type="number" value="1000" min="1000" max="1000" step="100"></label>
+<label>Number of pairs<input id="pairs" type="number" value="30" min="1" max="30" step="1"></label>
+
+<button id="start">START 30-PAIR DEMO</button>
+<button id="stop" class="stop" disabled>STOP NEW PAIRS</button>
+<button id="csv" disabled>DOWNLOAD CSV</button>
+
+<div class="warn"><strong>Safety:</strong> Demo DOT account only. Each pair uses exactly two demo buy operations. No Martingale, no automatic restart, and no live-account endpoint. The bot stops after the selected number of pairs or when you press STOP.</div>
+<div class="good"><strong>Purpose:</strong> collect enough paired observations to estimate both-win %, mixed %, both-loss %, average pair P/L, and drawdown before changing the strategy.</div>
+
+<div class="grid">
+<div class="metric">Status<b id="status">READY</b></div>
+<div class="metric">Pair<b id="pair">0 / 30</b></div>
+<div class="metric">Last tick<b id="tick">—</b></div>
+<div class="metric">SMA(5)<b id="sma">—</b></div>
+<div class="metric">Both loss<b id="ll">0</b></div>
+<div class="metric">Total P/L<b id="pnl">$0.00</b></div>
+</div>
+
+<table>
+<thead>
+<tr>
+<th>#</th><th>Signal</th><th>First</th><th>Second</th><th>Up</th><th>Down</th><th>Pair</th>
+</tr>
+</thead>
+<tbody id="rows"></tbody>
+</table>
+
+<div id="log"></div>
+</div>
+
+<script>
+(() => {
+const API='https://api.derivws.com', SYMBOL='1HZ75V';
+let ws=null, prices=[], reqId=8000, running=false, stopped=false;
+let pairNo=0, sessionPnl=0, bothWin=0, bothLoss=0, mixed=0, records=[];
+let contracts=new Map(), currentPairContracts=[];
+
+const $=id=>document.getElementById(id);
+function log(s){$('log').textContent += '['+new Date().toLocaleTimeString()+'] '+s+'\\n'; $('log').scrollTop=$('log').scrollHeight;}
+function setPnl(){ $('pnl').textContent=(sessionPnl>=0?'+$':'-$')+Math.abs(sessionPnl).toFixed(2); }
+function sma5(){if(prices.length<5)return null; const a=prices.slice(-5); return a.reduce((x,y)=>x+y,0)/5;}
+function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
+
+function request(payload){
+  return new Promise((resolve,reject)=>{
+    const id=reqId++;
+    const t=setTimeout(()=>{ws.removeEventListener('message',handler);reject(new Error('Request timeout'));},15000);
+    function handler(e){
+      let d; try{d=JSON.parse(e.data)}catch{return}
+      if(d.req_id!==id)return;
+      ws.removeEventListener('message',handler); clearTimeout(t);
+      if(d.error) reject(new Error(`${d.error.code||'API'}: ${d.error.message||''}`));
+      else resolve(d);
+    }
+    ws.addEventListener('message',handler);
+    ws.send(JSON.stringify({...payload,req_id:id}));
+  });
+}
+
+async function getOtp(app,acct,pat){
+  const r=await fetch(`${API}/trading/v1/options/accounts/${encodeURIComponent(acct)}/otp`,{
+    method:'POST',
+    headers:{'Authorization':`Bearer ${pat}`,'Deriv-App-ID':app}
+  });
+  if(!r.ok) throw new Error(`OTP HTTP ${r.status}`);
+  const d=await r.json();
+  if(!d?.data?.url) throw new Error('No WebSocket URL returned');
+  if(!d.data.url.includes('/options/ws/demo')) throw new Error('Safety stop: non-Demo WebSocket');
+  return d.data.url;
+}
+
+async function connect(){
+  const app=$('appId').value.trim(), acct=$('accountId').value.trim(), pat=$('pat').value.trim();
+  if(!app||!acct||!pat)throw new Error('Enter App ID, Demo account ID and PAT.');
+  if(!/^DOT/i.test(acct))throw new Error('Safety stop: Demo Options account must begin with DOT.');
+
+  const url=await getOtp(app,acct,pat);
+  ws=new WebSocket(url);
+
+  await new Promise((resolve,reject)=>{
+    const t=setTimeout(()=>reject(new Error('WebSocket open timeout')),15000);
+    ws.onopen=()=>{clearTimeout(t);resolve();};
+    ws.onerror=()=>{clearTimeout(t);reject(new Error('WebSocket error'));};
+  });
+
+  $('status').textContent='CONNECTED';
+  log('Authenticated Demo WebSocket connected.');
+
+  ws.onmessage=e=>{
+    let d;try{d=JSON.parse(e.data)}catch{return;}
+    if(d.error){log(`API error: ${d.error.code||''} ${d.error.message||''}`);return;}
+
+    if(d.msg_type==='tick'){
+      const q=Number(d.tick.quote);
+      if(Number.isFinite(q)){
+        prices.push(q);
+        if(prices.length>1000)prices.shift();
+        $('tick').textContent=q.toFixed(2);
+        const s=sma5();
+        $('sma').textContent=s===null?'waiting...':s.toFixed(2);
+      }
+    }
+
+    if(d.msg_type==='proposal_open_contract'){
+      const c=d.proposal_open_contract||{};
+      const id=String(c.contract_id||'');
+      const rec=contracts.get(id);
+      if(!rec)return;
+
+      rec.pnl=Number(c.profit||0);
+      rec.status=c.status||'open';
+      rec.sold=Boolean(c.is_sold)||rec.status==='won'||rec.status==='lost';
+
+      if(rec.sold && !rec.done){
+        rec.done=true;
+        if(currentPairContracts.every(x=>x.done)){
+          finishPair();
+        }
+      }
+    }
+  };
+}
+
+async function buy(type,side,signal,pairId){
+  const stake=Number($('stake').value), duration=Number($('duration').value);
+
+  const pr=await request({
+    proposal:1,
+    amount:stake,
+    basis:'stake',
+    contract_type:type,
+    currency:'USD',
+    duration,
+    duration_unit:'t',
+    underlying_symbol:SYMBOL
+  });
+
+  const ask=Number(pr.proposal.ask_price);
+  const b=await request({buy:pr.proposal.id,price:ask});
+  const id=String(b.buy.contract_id);
+
+  const rec={id,side,signal,pairId,stake,ask,pnl:0,status:'open',sold:false,done:false};
+  contracts.set(id,rec);
+  currentPairContracts.push(rec);
+
+  log(`Pair ${pairId}: ${side} contract ${id} bought at $${ask.toFixed(2)}.`);
+  ws.send(JSON.stringify({
+    proposal_open_contract:1,
+    contract_id:Number(id),
+    subscribe:1,
+    req_id:reqId++
+  }));
+}
+
+function finishPair(){
+  const up=currentPairContracts.find(x=>x.side==='UP');
+  const down=currentPairContracts.find(x=>x.side==='DOWN');
+  if(!up||!down)return;
+
+  const upWin=up.pnl>0, downWin=down.pnl>0;
+  const pair=up.pnl+down.pnl;
+  sessionPnl+=pair;
+  setPnl();
+
+  let type='MIXED';
+  if(upWin&&downWin){bothWin++;type='BOTH WIN';}
+  else if(!upWin&&!downWin){bothLoss++;type='BOTH LOSS';}
+  else {mixed++;type='MIXED';}
+
+  const signal=up.signal||down.signal;
+  records.push({
+    pair:pairNo, timestamp:new Date().toISOString(), signal,
+    first:signal.split('→')[0].trim(), second:signal.split('→')[1].trim(),
+    up_pnl:up.pnl.toFixed(2), down_pnl:down.pnl.toFixed(2),
+    pair_pnl:pair.toFixed(2), outcome:type
+  });
+
+  const tr=document.createElement('tr');
+  tr.innerHTML=`<td>${pairNo}</td><td>${signal}</td><td>${signal.split('→')[0].trim()}</td><td>${signal.split('→')[1].trim()}</td>
+  <td>${up.pnl>=0?'+$':'-$'}${Math.abs(up.pnl).toFixed(2)}</td>
+  <td>${down.pnl>=0?'+$':'-$'}${Math.abs(down.pnl).toFixed(2)}</td>
+  <td>${pair>=0?'+$':'-$'}${Math.abs(pair).toFixed(2)}</td>`;
+  $('rows').appendChild(tr);
+
+  $('ll').textContent=String(bothLoss);
+  log(`Pair ${pairNo}: ${type}. Pair P/L ${pair>=0?'+':''}$${pair.toFixed(2)}. Session ${sessionPnl>=0?'+':''}$${sessionPnl.toFixed(2)}.`);
+
+  currentPairContracts.forEach(x=>contracts.delete(x.id));
+  currentPairContracts=[];
+
+  if(stopped || pairNo>=Number($('pairs').value)){
+    running=false;
+    $('status').textContent='COMPLETE';
+    $('stop').disabled=true;
+    $('start').disabled=false;
+    $('csv').disabled=false;
+    log(`DONE: ${pairNo} pairs | Both-win=${bothWin} | Mixed=${mixed} | Both-loss=${bothLoss} | Total P/L=${sessionPnl>=0?'+':''}$${sessionPnl.toFixed(2)}`);
+    return;
+  }
+
+  setTimeout(runPair,300);
+}
+
+async function runPair(){
+  if(!running || stopped || !ws || currentPairContracts.length>0)return;
+
+  const current=prices.at(-1), avg=sma5();
+  if(avg===null){setTimeout(runPair,200);return;}
+
+  pairNo++;
+  $('pair').textContent=`${pairNo} / ${Number($('pairs').value)}`;
+
+  const first=current>avg?'UP':'DOWN';
+  const second=first==='UP'?'DOWN':'UP';
+  const signal=`${first} → ${second}`;
+  log(`Pair ${pairNo}: Signal ${signal}; tick=${current.toFixed(2)}, SMA=${avg.toFixed(2)}.`);
+
+  await buy(first==='UP'?'ASIANU':'ASIAND',first,signal,pairNo);
+  if(!running || stopped)return;
+
+  await sleep(1000);
+
+  await buy(second==='UP'?'ASIANU':'ASIAND',second,signal,pairNo);
+  $('status').textContent='MONITORING';
+}
+
+$('start').onclick=async()=>{
+  if(running)return;
+  if(Number($('stake').value)!==0.35){log('Safety stop: keep stake at $0.35.');return;}
+  if(Number($('delay').value)!==1000){log('Safety stop: delay must be 1000 ms.');return;}
+  if(Number($('pairs').value)<1 || Number($('pairs').value)>30){log('Pairs must be between 1 and 30.');return;}
+
+  running=true; stopped=false; pairNo=0; sessionPnl=0; bothWin=0;bothLoss=0;mixed=0;records=[];prices=[];contracts.clear();currentPairContracts=[];
+  $('rows').innerHTML=''; setPnl(); $('ll').textContent='0'; $('csv').disabled=true; $('start').disabled=true; $('stop').disabled=false; $('status').textContent='CONNECTING...';
+
+  try{
+    await connect();
+
+    const deadline=Date.now()+10000;
+    while(prices.length<5 && Date.now()<deadline)await sleep(100);
+    if(prices.length<5)throw new Error('Timed out waiting for 5 live V75 ticks.');
+
+    $('status').textContent='RUNNING';
+    await runPair();
+  }catch(e){
+    running=false;$('start').disabled=false;$('stop').disabled=true;$('status').textContent='FAILED';
+    log('FAILED: '+e.message);
+  }
+};
+
+$('stop').onclick=()=>{
+  stopped=true;
+  $('stop').disabled=true;
+  log('STOP requested. No new pair will start after the current pair settles.');
+};
+
+$('csv').onclick=()=>{
+  const header=['pair','timestamp','signal','first','second','up_pnl','down_pnl','pair_pnl','outcome'];
+  const lines=[header.join(',')].concat(records.map(r=>header.map(h=>JSON.stringify(r[h])).join(',')));
+  const blob=new Blob([lines.join('\n')],{type:'text/csv'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='v75_asian_30pair_results.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+})();
+</script>
+</body>
+</html>
