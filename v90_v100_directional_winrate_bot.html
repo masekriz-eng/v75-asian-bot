@@ -1,0 +1,484 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Deriv Asian Direction Bot — Rolling Win Rate</title>
+<style>
+:root{--bg:#061a3a;--card:#0b2a55;--panel:#09234a;--panel2:#0d315f;--line:#23558f;--text:#e6eefc;--muted:#9fb5d2;--accent:#1f6feb;--danger:#dc3f4b;--good:#55b47b}
+*{box-sizing:border-box}body{font-family:Arial,sans-serif;margin:22px;background:var(--bg);color:var(--text)}
+.card{max-width:1400px;margin:auto;background:var(--card);padding:24px;border-radius:14px;box-shadow:0 8px 28px rgba(0,0,0,.35);border:1px solid #17457d}
+h1{margin:0 0 6px;color:#f4f8ff}.sub{color:#bfd0ea;line-height:1.45}
+fieldset{border:1px solid var(--line);border-radius:12px;padding:14px;margin-top:16px;background:#0a2550}legend{font-weight:700;padding:0 6px;color:#eaf3ff}
+.grid2{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+label{display:block;margin-top:8px;font-weight:600;color:#dce8f8}input,select{width:100%;padding:10px;margin-top:6px;border:1px solid #32679f;border-radius:8px;background:#071d40;color:#f1f6ff}input[type=file]{padding:8px}
+button{margin-top:16px;margin-right:8px;padding:11px 17px;border:0;border-radius:8px;background:var(--accent);color:#fff;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.2)}button.stop{background:var(--danger)}button.secondary{background:#3c608b}button.good{background:#267a55}button:disabled{opacity:.5;cursor:not-allowed}
+.metric-grid{display:grid;grid-template-columns:repeat(8,1fr);gap:10px;margin-top:18px}.metric{background:#0f3569;padding:12px;border-radius:10px;border:1px solid #1c4e86}.metric span{display:block;color:#a8c1df;font-size:11px}.metric b{display:block;margin-top:5px;font-size:17px;color:#fff}
+.signal-box{margin-top:16px;background:#081d3c;border:1px solid #245a91;border-radius:12px;padding:14px}.signal-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}.signal-card{background:var(--panel2);border:1px solid #245a91;border-radius:10px;padding:11px}.signal-card .name{font-size:11px;font-weight:700;color:#dce9fb}.signal-card .value{font-size:18px;font-weight:700;margin-top:6px}.selected{outline:2px solid #66b3ff}.goodtxt{color:#91e3b2}.warntxt{color:#f2d58b}.muted{color:var(--muted)}
+.warn{margin-top:16px;padding:12px;border:1px solid #d39a46;background:#4a3517;color:#f7dfaf;border-radius:10px}.info{margin-top:16px;padding:12px;border:1px solid #32679f;background:#0c2f5f;color:#cfe0f6;border-radius:10px}.small{font-size:12px;color:var(--muted);margin-top:9px;line-height:1.45}
+#log{margin-top:18px;background:#041329;color:#cfe0f6;padding:14px;min-height:220px;max-height:340px;white-space:pre-wrap;font-family:Consolas,monospace;font-size:12px;overflow:auto;border-radius:10px;border:1px solid #173a68}
+table{width:100%;border-collapse:collapse;margin-top:18px;font-size:11px;background:#09234a;display:block;overflow:auto;max-height:440px}thead,tbody{width:100%}tr{display:table;width:100%;table-layout:auto}th,td{padding:7px;border-bottom:1px solid #224d82;text-align:left;white-space:nowrap}th{color:#e8f1fc;background:#0d315e;position:sticky;top:0}td{color:#c7d8ec}
+@media(max-width:1100px){.metric-grid{grid-template-columns:repeat(4,1fr)}.signal-grid{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:800px){.grid2,.grid3,.grid4,.signal-grid,.metric-grid{grid-template-columns:1fr}.card{padding:15px}body{margin:8px}}
+</style>
+</head>
+<body>
+<div class="card">
+<h1>Deriv Asian Direction Bot — Rolling Win Rate</h1>
+<p class="sub">Clean single-direction research/trading build for Volatility 90 / Volatility 100 and other markets that expose both <strong>ASIANU</strong> and <strong>ASIAND</strong>. The engine uses the direction with the higher historical win rate, provided the selected market has enough prior observations and the win-rate gap clears the confidence threshold.</p>
+
+<fieldset>
+<legend>1. Demo connection</legend>
+<div class="grid3">
+<label>Deriv App ID<input id="appId" placeholder="Paste your App ID locally"></label>
+<label>Demo Options Account ID<input id="accountId" value="DOT94618672"></label>
+<label>PAT<input id="pat" type="password" autocomplete="off" placeholder="Paste PAT locally — never share it"></label>
+</div>
+<div class="small">The page sends the PAT directly to Deriv only to request a short-lived authenticated WebSocket URL. It is not stored in localStorage.</div>
+</fieldset>
+
+<fieldset>
+<legend>2. Market</legend>
+<div class="grid2">
+<label>Market<select id="marketSelect" disabled><option value="1HZ75V">Volatility 75 (1s) — 1HZ75V</option></select></label>
+<div><label>&nbsp;</label><button id="discover" type="button">DISCOVER ELIGIBLE MARKETS</button></div>
+</div>
+<div id="marketStatus" class="small">Default market: V75 (1s). Discovering markets is optional; the selected market will be fully revalidated before trading.</div>
+<div id="dataStatus" class="small">Data integrity: waiting for selected-market history.</div>
+</fieldset>
+
+<fieldset>
+<legend>3. Direction engine</legend>
+<div class="grid4">
+<label>Win-rate lookback<input id="lookback" type="number" value="20" min="10" max="200" step="1"></label>
+<label>Minimum observations / direction<input id="minObs" type="number" value="10" min="1" max="100" step="1"></label>
+<label>Minimum WR gap (pp)<input id="gap" type="number" value="5" min="0" max="100" step="0.5"></label>
+<label>Expiry (ticks)<input id="duration" type="number" value="5" min="1" max="10" step="1"></label>
+</div>
+<div class="info"><strong>Entry rule:</strong> use the last <span id="lookbackText">20</span> completed directional trades for the selected market. Both directions must have at least <span id="minObsText">10</span> observations. The bot selects DOWN when DOWN win rate exceeds UP by at least <span id="gapText">5.0</span> percentage points; it selects UP under the reverse condition. A tie or smaller gap means <strong>NO TRADE</strong>.</div>
+<div class="grid3">
+<label>Base stake / trade (USD)<input id="stake" type="number" value="0.35" min="0.35" max="50" step="0.01"></label>
+<label>Max trades<input id="maxTrades" type="number" value="100" min="1" max="1000" step="1"></label>
+<label>Session loss stop (USD)<input id="lossLimit" type="number" value="10" min="0.35" max="1000" step="0.35"></label>
+</div>
+</fieldset>
+
+<fieldset>
+<legend>4. Money management</legend>
+<div class="grid3">
+<label>Money management<select id="mmSwitch"><option value="off">OFF — flat stake</option><option value="on">ON — capped 1.15× progression</option></select></label>
+<label>Current stake<input id="currentStake" value="$0.35" readonly></label>
+<label>Recovery level<input id="mmLevel" value="0 / 5" readonly></label>
+</div>
+<div class="small">When ON, consecutive losses move the next stake through $0.35 → $0.40 → $0.46 → $0.53 → $0.61 → $0.70. Any win resets to $0.35. This is a capped progression, not a guarantee of recovery.</div>
+</fieldset>
+
+<fieldset>
+<legend>5. Seed / persist directional history</legend>
+<div class="grid2">
+<div>
+<label>Import a prior research CSV<input id="csvFile" type="file" accept=".csv,text/csv"></label>
+<button id="importCsv" type="button" class="secondary">IMPORT / MERGE CSV HISTORY</button>
+</div>
+<div>
+<label>Stored history actions<select id="historyAction"><option value="view">View current market history</option><option value="clear">Clear current market history</option></select></label>
+<button id="applyHistoryAction" type="button" class="secondary">APPLY</button>
+</div>
+</div>
+<div id="historyStatus" class="small">No imported history is required, but the engine will not trade until the minimum directional observations are available for the selected market.</div>
+</fieldset>
+
+<div class="signal-box">
+<strong>Current directional model</strong>
+<div class="signal-grid" style="margin-top:10px">
+<div id="downCard" class="signal-card"><div class="name">DOWN WIN RATE</div><div id="downWr" class="value">—</div><div id="downN" class="small">0 observations</div></div>
+<div id="upCard" class="signal-card"><div class="name">UP WIN RATE</div><div id="upWr" class="value">—</div><div id="upN" class="small">0 observations</div></div>
+<div class="signal-card"><div class="name">WR GAP</div><div id="wrGap" class="value">—</div><div id="wrGapStatus" class="small">Waiting</div></div>
+<div class="signal-card"><div class="name">SELECTED DIRECTION</div><div id="selectedDirection" class="value">NO TRADE</div><div id="selectedReason" class="small">Waiting for enough history</div></div>
+<div class="signal-card"><div class="name">LIVE PRICE</div><div id="livePrice" class="value">—</div><div id="liveTime" class="small">—</div></div>
+</div>
+</div>
+
+<button id="start">START DEMO BOT</button>
+<button id="stop" class="stop" disabled>STOP AFTER CURRENT TRADE</button>
+<button id="csv" class="secondary" disabled>DOWNLOAD TRADE CSV</button>
+
+<div class="warn"><strong>Safety:</strong> The app rejects non-Demo accounts, blocks trading until clean selected-market data is received, never stores the PAT, permits one open contract at a time, stops at the trade limit or session-loss limit, and caps the optional progression at $0.70 per trade. Test on the Demo account only.</div>
+
+<div class="metric-grid">
+<div class="metric"><span>Status</span><b id="status">READY</b></div>
+<div class="metric"><span>Trades</span><b id="trades">0 / 100</b></div>
+<div class="metric"><span>Wins</span><b id="wins">0</b></div>
+<div class="metric"><span>Losses</span><b id="losses">0</b></div>
+<div class="metric"><span>Win rate</span><b id="winRate">0.0%</b></div>
+<div class="metric"><span>Session P/L</span><b id="pnl">$0.00</b></div>
+<div class="metric"><span>Max drawdown</span><b id="dd">$0.00</b></div>
+<div class="metric"><span>Best streak</span><b id="bestStreak">0</b></div>
+</div>
+
+<div id="featureReadout" class="small">The bot waits for a completed directional-history sample before it can select a direction.</div>
+<table>
+<thead><tr>
+<th>#</th><th>Time</th><th>Market</th><th>Direction</th><th>Stake</th><th>MM</th><th>Level</th><th>Live Tick</th><th>DOWN WR</th><th>UP WR</th><th>WR Gap pp</th><th>N Down</th><th>N Up</th><th>Contract</th><th>Status</th><th>Profit</th><th>Cumulative P/L</th><th>Max DD</th>
+</tr></thead>
+<tbody id="rows"></tbody>
+</table>
+
+<div id="log"></div>
+<p class="small">Imported CSV rows are converted into directional history using down/up P&amp;L or status fields when available. Live bot results are persisted separately by market in this browser so later sessions can continue learning from completed trades. This is a retrospective research engine, not a guarantee of positive expectancy.</p>
+</div>
+
+<script>
+(() => {
+'use strict';
+const API='https://api.derivws.com';
+const MM_STAKES=[0.35,0.40,0.46,0.53,0.61,0.70];
+const HISTORY_PREFIX='deriv_direction_history_v1_';
+const $=id=>document.getElementById(id);
+let ws=null, reqId=70000, pending=new Map();
+let SYMBOL='1HZ75V', eligibleMarkets=[];
+let running=false, stopAfterTrade=false;
+let activeTickSubId=null, lastHistoryEpoch=0, lastTickEpoch=0;
+let prices=[];
+let liveTickCount=0;
+let activeContract=null;
+let tradeNo=0,wins=0,losses=0,sessionPnl=0,peakEquity=0,maxDrawdown=0;
+let currentWinStreak=0,bestWinStreak=0;
+let mmLevel=0, records=[];
+let lastSignalTickEpoch=0;
+let tickPollTimer=null;
+
+function log(s){ $('log').textContent += `[${new Date().toLocaleTimeString()}] ${s}\n`; $('log').scrollTop=$('log').scrollHeight; }
+function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
+function money(v){return `${v>=0?'+$':'-$'}${Math.abs(v).toFixed(2)}`;}
+function pct(v){return Number.isFinite(v)?`${v.toFixed(1)}%`:'—';}
+function mmEnabled(){return $('mmSwitch').value==='on';}
+function currentStake(){return mmEnabled()?MM_STAKES[Math.min(mmLevel,MM_STAKES.length-1)]:Number($('stake').value);}
+function historyKey(symbol){return HISTORY_PREFIX+symbol;}
+
+function loadHistory(symbol=SYMBOL){
+  try{
+    const raw=localStorage.getItem(historyKey(symbol));
+    if(!raw)return [];
+    const arr=JSON.parse(raw);
+    if(!Array.isArray(arr))return [];
+    return arr.filter(x=>x&&((x.direction==='DOWN')||(x.direction==='UP'))&&Number.isFinite(Number(x.win?1:0))).slice(-5000);
+  }catch(e){log(`History load warning: ${e.message}`);return []}
+}
+function saveHistory(symbol,arr){
+  const clean=arr.slice(-5000);
+  localStorage.setItem(historyKey(symbol),JSON.stringify(clean));
+  return clean;
+}
+function addHistory(direction,won,meta={}){
+  const hist=loadHistory(SYMBOL);
+  hist.push({direction,win:Boolean(won),timestamp:new Date().toISOString(),source:meta.source||'live',market:SYMBOL});
+  saveHistory(SYMBOL,hist);
+}
+function computeStats(symbol=SYMBOL){
+  const lookback=Math.max(10,Math.min(200,Number($('lookback').value)||20));
+  const hist=loadHistory(symbol).slice(-lookback);
+  const down=hist.filter(x=>x.direction==='DOWN');
+  const up=hist.filter(x=>x.direction==='UP');
+  const downWins=down.filter(x=>x.win).length, upWins=up.filter(x=>x.win).length;
+  const downWr=down.length?downWins/down.length:null, upWr=up.length?upWins/up.length:null;
+  const minObs=Math.max(1,Number($('minObs').value)||10);
+  const gapReq=Math.max(0,Number($('gap').value)||5)/100;
+  let direction=null,reason='Waiting for enough history';
+  if(down.length<minObs||up.length<minObs){
+    reason=`Need ${minObs} observations for each direction (current: DOWN ${down.length}, UP ${up.length})`;
+  } else if(Math.abs(downWr-upWr)<gapReq){
+    reason=`WR gap ${(Math.abs(downWr-upWr)*100).toFixed(1)}pp is below ${Number($('gap').value).toFixed(1)}pp requirement`;
+  } else if(downWr>upWr){
+    direction='DOWN'; reason='DOWN WR exceeds UP WR by the required gap';
+  } else if(upWr>downWr){
+    direction='UP'; reason='UP WR exceeds DOWN WR by the required gap';
+  } else {
+    reason='Equal win rates — no trade';
+  }
+  return {hist,lookback,downN:down.length,upN:up.length,downWins,upWins,downWr,upWr,gap:downWr!=null&&upWr!=null?Math.abs(downWr-upWr):null,direction,reason};
+}
+
+function updateHistoryUI(){
+  const s=computeStats();
+  $('downWr').textContent=pct(s.downWr*100);
+  $('upWr').textContent=pct(s.upWr*100);
+  $('downN').textContent=`${s.downN} observations (${s.downWins} wins)`;
+  $('upN').textContent=`${s.upN} observations (${s.upWins} wins)`;
+  $('wrGap').textContent=s.gap==null?'—':`${(s.gap*100).toFixed(1)} pp`;
+  $('wrGapStatus').textContent=s.direction?`Threshold met (${Number($('gap').value).toFixed(1)} pp)`:s.reason;
+  $('selectedDirection').textContent=s.direction||'NO TRADE';
+  $('selectedDirection').className=`value ${s.direction?'goodtxt':''}`;
+  $('selectedReason').textContent=s.reason;
+  $('downCard').classList.toggle('selected',s.direction==='DOWN');
+  $('upCard').classList.toggle('selected',s.direction==='UP');
+  $('lookbackText').textContent=String(s.lookback);
+  $('minObsText').textContent=String(Number($('minObs').value));
+  $('gapText').textContent=Number($('gap').value).toFixed(1);
+  $('historyStatus').textContent=`${marketLabel(SYMBOL)}: ${loadHistory(SYMBOL).length} stored directional observations. Rolling sample used now: ${s.hist.length}.`;
+  return s;
+}
+
+function updateMMUI(){ $('currentStake').value=`$${currentStake().toFixed(2)}`; $('mmLevel').value=mmEnabled()?`${mmLevel} / 5`:'OFF'; }
+function resetProgression(){mmLevel=0;updateMMUI();}
+function advanceProgression(won){
+  if(!mmEnabled()){resetProgression();return;}
+  if(won)mmLevel=0;else mmLevel=Math.min(mmLevel+1,MM_STAKES.length-1);
+  updateMMUI();
+}
+
+function marketLabel(symbol){const x=eligibleMarkets.find(m=>m.underlying_symbol===symbol);return x?`${x.underlying_symbol_name||x.underlying_symbol} — ${x.underlying_symbol}`:symbol;}
+
+function send(payload){
+  if(!ws||ws.readyState!==WebSocket.OPEN)return Promise.reject(new Error('WebSocket not connected'));
+  const id=reqId++;
+  return new Promise((resolve,reject)=>{
+    const timer=setTimeout(()=>{pending.delete(id);reject(new Error('Request timed out'));},15000);
+    pending.set(id,{resolve,reject,timer});
+    ws.send(JSON.stringify({...payload,req_id:id}));
+  });
+}
+
+async function getOtp(appId,accountId,pat){
+  const r=await fetch(`${API}/trading/v1/options/accounts/${encodeURIComponent(accountId)}/otp`,{method:'POST',headers:{'Authorization':`Bearer ${pat}`,'Deriv-App-ID':appId}});
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok)throw new Error(d?.errors?.[0]?.message||`OTP HTTP ${r.status}`);
+  if(!d?.data?.url)throw new Error('Deriv returned no WebSocket URL');
+  if(!String(d.data.url).includes('/options/ws/demo'))throw new Error('Safety stop: returned WebSocket is not a Demo endpoint');
+  return d.data.url;
+}
+
+async function connect(){
+  const app=$('appId').value.trim(),acct=$('accountId').value.trim(),pat=$('pat').value.trim();
+  if(!app||!acct||!pat)throw new Error('Enter App ID, Demo account ID and PAT');
+  if(!/^DOT/i.test(acct))throw new Error('Safety stop: this bot requires a Demo DOT Options account');
+  const url=await getOtp(app,acct,pat);
+  ws=new WebSocket(url);
+  await new Promise((resolve,reject)=>{
+    const t=setTimeout(()=>reject(new Error('WebSocket open timeout')),15000);
+    ws.addEventListener('open',()=>{clearTimeout(t);resolve();},{once:true});
+    ws.addEventListener('error',()=>{clearTimeout(t);reject(new Error('WebSocket connection error'));},{once:true});
+  });
+  ws.onmessage=onMessage;
+  ws.onclose=()=>{if(running){running=false;$('status').textContent='DISCONNECTED';log('WebSocket closed. Bot stopped.');$('start').disabled=false;$('stop').disabled=true;$('mmSwitch').disabled=false;}};
+  $('status').textContent='CONNECTED'; log('Authenticated Demo WebSocket connected.');
+}
+
+function onMessage(event){
+  let m;try{m=JSON.parse(event.data)}catch{return}
+  if(m.req_id&&pending.has(m.req_id)){
+    const w=pending.get(m.req_id);pending.delete(m.req_id);clearTimeout(w.timer);
+    if(m.error)w.reject(new Error(`${m.error.code||'API'}: ${m.error.message||''}`));else w.resolve(m);
+    return;
+  }
+  if(m.msg_type==='tick'){
+    const sid=String(m.subscription?.id||'');
+    if(!activeTickSubId||sid!==activeTickSubId)return;
+    const q=Number(m.tick?.quote),epoch=Number(m.tick?.epoch||0);
+    if(!Number.isFinite(q))return;
+    if(epoch&&lastHistoryEpoch&&epoch<=lastHistoryEpoch)return;
+    if(epoch&&epoch<=lastTickEpoch)return;
+    prices.push(q);if(prices.length>200)prices.shift();
+    if(epoch)lastTickEpoch=epoch;liveTickCount++;
+    $('livePrice').textContent=q.toFixed(2);$('liveTime').textContent=new Date((epoch||Date.now()/1000)*1000).toLocaleTimeString();
+    $('dataStatus').textContent=`Data integrity: receiving live ${marketLabel(SYMBOL)} ticks only. Live ticks seen: ${liveTickCount}.`;
+    if(!activeContract) maybeEnter();
+  }
+  if(m.msg_type==='proposal_open_contract')handleContractUpdate(m.proposal_open_contract||{});
+}
+
+async function discoverEligibleMarkets(){
+  if(!ws||ws.readyState!==WebSocket.OPEN)throw new Error('Connect to Demo first');
+  const u=await send({active_symbols:'brief',contract_type:['ASIANU']});
+  const d=await send({active_symbols:'brief',contract_type:['ASIAND']});
+  const up=(u.active_symbols||[]).filter(x=>x&&x.underlying_symbol);
+  const downSet=new Set((d.active_symbols||[]).filter(x=>x&&x.underlying_symbol).map(x=>x.underlying_symbol));
+  const both=up.filter(x=>downSet.has(x.underlying_symbol));
+  const filtered=both.filter(x=>{
+    const s=String(x.underlying_symbol||'').toUpperCase();
+    const n=String(x.underlying_symbol_name||x.display_name||'').toLowerCase();
+    const mk=String(x.market||'').toLowerCase();
+    return mk.includes('derived')||n.includes('volatility')||/^(1HZ|R_)/.test(s);
+  });
+  const map=new Map();for(const x of filtered)map.set(x.underlying_symbol,x);
+  eligibleMarkets=[...map.values()].sort((a,b)=>String(a.underlying_symbol_name||a.underlying_symbol).localeCompare(String(b.underlying_symbol_name||b.underlying_symbol)));
+  const sel=$('marketSelect'),prev=sel.value||SYMBOL;sel.innerHTML='';
+  for(const x of eligibleMarkets){const o=document.createElement('option');o.value=x.underlying_symbol;o.textContent=`${x.underlying_symbol_name||x.underlying_symbol} — ${x.underlying_symbol}`;sel.appendChild(o)}
+  if(eligibleMarkets.some(x=>x.underlying_symbol===prev))sel.value=prev;else if(eligibleMarkets.some(x=>x.underlying_symbol==='1HZ75V'))sel.value='1HZ75V';else if(eligibleMarkets[0])sel.value=eligibleMarkets[0].underlying_symbol;
+  SYMBOL=sel.value;sel.disabled=false;updateHistoryUI();
+  $('marketStatus').textContent=`Found ${eligibleMarkets.length} market(s) exposing both Asian directions. Selected: ${marketLabel(SYMBOL)}.`;
+  log(`Eligible markets discovered: ${eligibleMarkets.length}`);return eligibleMarkets;
+}
+
+async function verifyAsianContracts(symbol){
+  const r=await send({contracts_for:symbol});
+  const a=r.contracts_for?.available||[];
+  return {hasDown:a.some(x=>x.contract_type==='ASIAND'),hasUp:a.some(x=>x.contract_type==='ASIANU')};
+}
+
+async function loadCleanMarket(){
+  if(!ws||ws.readyState!==WebSocket.OPEN)throw new Error('WebSocket not connected');
+  activeTickSubId=null;lastHistoryEpoch=0;lastTickEpoch=0;liveTickCount=0;prices=[];
+  try{await send({forget_all:'ticks'});}catch(e){log(`Subscription reset note: ${e.message}`)}
+  const h=await send({ticks_history:SYMBOL,count:120,end:'latest',style:'ticks'});
+  const hp=h.history||{};const rawP=Array.isArray(hp.prices)?hp.prices:[];const rawT=Array.isArray(hp.times)?hp.times:[];
+  const clean=rawP.map(Number).filter(Number.isFinite);if(clean.length<120)throw new Error(`Only ${clean.length} clean history ticks returned; refusing to trade.`);
+  prices=clean.slice(-120);if(rawT.length)lastHistoryEpoch=Number(rawT.at(-1)||0);
+  $('dataStatus').textContent=`Data integrity: loaded 120 clean ticks for ${marketLabel(SYMBOL)}; waiting for a newer live tick.`;
+  const sub=await send({ticks:SYMBOL,subscribe:1});
+  const sid=String(sub.subscription?.id||'');if(!sid)throw new Error('No tick subscription id returned');activeTickSubId=sid;
+  if(sub.msg_type==='tick'){
+    const q=Number(sub.tick?.quote),ep=Number(sub.tick?.epoch||0);
+    if(Number.isFinite(q)&&(!lastHistoryEpoch||!ep||ep>lastHistoryEpoch)){prices.push(q);lastTickEpoch=ep||lastTickEpoch;liveTickCount=1;$('livePrice').textContent=q.toFixed(2);}
+  }
+  const deadline=Date.now()+10000;while(liveTickCount<1&&Date.now()<deadline)await sleep(100);
+  if(liveTickCount<1)throw new Error('No newer live tick received; refusing to trade.');
+  $('dataStatus').textContent=`Data integrity: PASS — selected-market history and live subscription verified for ${marketLabel(SYMBOL)}.`;
+  log(`Clean market data ready: ${marketLabel(SYMBOL)} | subscription=${activeTickSubId}`);
+}
+
+function featureText(){
+  const s=updateHistoryUI();
+  if(s.direction){$('featureReadout').innerHTML=`<strong>Model:</strong> ${s.direction} selected | DOWN WR ${pct(s.downWr*100)} (${s.downN}) | UP WR ${pct(s.upWr*100)} (${s.upN}) | Gap ${(s.gap*100).toFixed(1)}pp ≥ ${Number($('gap').value).toFixed(1)}pp.`;}
+  else $('featureReadout').textContent=`No entry: ${s.reason}.`;
+}
+
+async function maybeEnter(){
+  if(!running||stopAfterTrade||activeContract)return;
+  const stats=computeStats();featureText();
+  if(!stats.direction)return;
+  const maxTrades=Number($('maxTrades').value)||100;if(tradeNo>=maxTrades)return;
+  const epoch=lastTickEpoch||Math.floor(Date.now()/1000);if(epoch&&epoch===lastSignalTickEpoch)return;
+  lastSignalTickEpoch=epoch;
+  const stake=currentStake();
+  const direction=stats.direction;
+  const type=direction==='DOWN'?'ASIAND':'ASIANU';
+  $('status').textContent=`BUYING ${direction}...`;
+  try{
+    const pr=await send({proposal:1,amount:Number(stake.toFixed(2)),basis:'stake',contract_type:type,currency:'USD',duration:Number($('duration').value),duration_unit:'t',underlying_symbol:SYMBOL});
+    const ask=Number(pr.proposal?.ask_price),pid=pr.proposal?.id;if(!pid||!Number.isFinite(ask)||ask<=0)throw new Error(`Invalid proposal for ${direction}`);
+    const b=await send({buy:pid,price:ask});const cid=String(b.buy?.contract_id||'');if(!cid)throw new Error('No contract id returned');
+    tradeNo++;$('trades').textContent=`${tradeNo} / ${maxTrades}`;
+    activeContract={id:cid,direction,stake,ask,entryTick:Number($('livePrice').textContent)||null,stats,mmEnabled:mmEnabled(),mmLevel,done:false,pnl:0,status:'open'};
+    log(`TRADE ${tradeNo}: ${direction} | stake=$${stake.toFixed(2)} | DOWN WR=${pct(stats.downWr*100)} | UP WR=${pct(stats.upWr*100)} | gap=${(stats.gap*100).toFixed(1)}pp | contract=${cid}`);
+    ws.send(JSON.stringify({proposal_open_contract:1,contract_id:Number(cid),subscribe:1,req_id:reqId++}));
+    $('status').textContent=`MONITORING ${direction}`;
+  }catch(e){
+    $('status').textContent='ENTRY ERROR';log(`ENTRY FAILED: ${e.message}`);
+    lastSignalTickEpoch=0;
+  }
+}
+
+function handleContractUpdate(c){
+  if(!activeContract)return;
+  if(String(c.contract_id||'')!==String(activeContract.id))return;
+  activeContract.pnl=Number(c.profit||0);activeContract.status=c.status||'open';
+  const done=Boolean(c.is_sold)||activeContract.status==='won'||activeContract.status==='lost';
+  if(done&&!activeContract.done){activeContract.done=true;finishTrade(activeContract);}
+}
+
+function finishTrade(c){
+  const won=c.pnl>0||c.status==='won';
+  if(won){wins++;currentWinStreak++;bestWinStreak=Math.max(bestWinStreak,currentWinStreak)}else{losses++;currentWinStreak=0}
+  sessionPnl+=c.pnl;peakEquity=Math.max(peakEquity,sessionPnl);maxDrawdown=Math.max(maxDrawdown,peakEquity-sessionPnl);
+  const gapPP=c.stats.gap==null?null:c.stats.gap*100;
+  const rec={trade:tradeNo,timestamp:new Date().toISOString(),market:SYMBOL,market_name:marketLabel(SYMBOL),direction:c.direction,stake:c.stake,money_management:c.mmEnabled?'ON':'OFF',mm_level:c.mmLevel,live_tick:c.entryTick,down_wr:c.stats.downWr,up_wr:c.stats.upWr,wr_gap_pp:gapPP,n_down:c.stats.downN,n_up:c.stats.upN,lookback:c.stats.lookback,contract_id:c.id,status:c.status,pnl:c.pnl,won,cumulative_pnl:sessionPnl,max_drawdown:maxDrawdown};
+  records.push(rec);
+  addHistory(c.direction,won,{source:'live'});
+  advanceProgression(won);
+  updateMetrics();
+  const tr=document.createElement('tr');
+  tr.innerHTML=`<td>${rec.trade}</td><td>${new Date(rec.timestamp).toLocaleTimeString()}</td><td>${rec.market}</td><td>${rec.direction}</td><td>$${rec.stake.toFixed(2)}</td><td>${rec.money_management}</td><td>${rec.mm_level}</td><td>${Number(rec.live_tick||0).toFixed(2)}</td><td>${(rec.down_wr*100).toFixed(1)}%</td><td>${(rec.up_wr*100).toFixed(1)}%</td><td>${gapPP==null?'—':gapPP.toFixed(1)}</td><td>${rec.n_down}</td><td>${rec.n_up}</td><td>${rec.contract_id}</td><td>${rec.status}</td><td>${money(rec.pnl)}</td><td>${money(rec.cumulative_pnl)}</td><td>$${rec.max_drawdown.toFixed(2)}</td>`;
+  $('rows').appendChild(tr);
+  log(`TRADE ${tradeNo} COMPLETE: ${won?'WIN':'LOSS'} | ${money(c.pnl)} | Session ${money(sessionPnl)} | Max DD $${maxDrawdown.toFixed(2)}`);
+  activeContract=null;
+  const limit=Number($('lossLimit').value)||10,maxTrades=Number($('maxTrades').value)||100;
+  if(stopAfterTrade||tradeNo>=maxTrades||sessionPnl<=-Math.abs(limit))finishSession(sessionPnl<=-Math.abs(limit)?'LOSS STOP':stopAfterTrade?'STOPPED':'COMPLETE');
+  else {$('status').textContent='RUNNING';setTimeout(()=>{featureText();maybeEnter();},250);}
+}
+
+function updateMetrics(){
+  $('wins').textContent=String(wins);$('losses').textContent=String(losses);$('winRate').textContent=pct((wins+losses)?wins/(wins+losses)*100:0);$('pnl').textContent=money(sessionPnl);$('dd').textContent=`$${maxDrawdown.toFixed(2)}`;$('bestStreak').textContent=String(bestWinStreak);
+}
+function finishSession(reason){
+  running=false;stopAfterTrade=false;$('status').textContent=reason;$('start').disabled=false;$('stop').disabled=true;$('mmSwitch').disabled=false;$('csv').disabled=records.length===0;
+  try{if(ws?.readyState===WebSocket.OPEN)ws.send(JSON.stringify({forget_all:'ticks',req_id:reqId++}));}catch{} activeTickSubId=null;
+  log(`SESSION COMPLETE: ${tradeNo} trades | Wins=${wins} | Losses=${losses} | Total=${money(sessionPnl)} | Max DD=$${maxDrawdown.toFixed(2)}`);
+}
+
+function resetSessionUI(){
+  tradeNo=0;wins=0;losses=0;sessionPnl=0;peakEquity=0;maxDrawdown=0;currentWinStreak=0;bestWinStreak=0;mmLevel=0;records=[];activeContract=null;stopAfterTrade=false;lastSignalTickEpoch=0;prices=[];liveTickCount=0;
+  $('trades').textContent=`0 / ${Number($('maxTrades').value)||100}`;$('wins').textContent='0';$('losses').textContent='0';$('winRate').textContent='0.0%';$('pnl').textContent='$0.00';$('dd').textContent='$0.00';$('bestStreak').textContent='0';$('rows').innerHTML='';$('csv').disabled=true;updateMMUI();
+}
+
+function parseCsvLine(line){
+  const out=[];let cur='',q=false;for(let i=0;i<line.length;i++){const ch=line[i];if(ch==='"'){if(q&&line[i+1]==='"'){cur+='"';i++;}else q=!q}else if(ch===','&&!q){out.push(cur);cur=''}else cur+=ch;}out.push(cur);return out;}
+function parseCsv(text){
+  const lines=text.replace(/^\uFEFF/,'').split(/\r?\n/).filter(x=>x.trim());if(!lines.length)return[];
+  const header=parseCsvLine(lines[0]).map(x=>x.trim().replace(/^"|"$/g,''));
+  return lines.slice(1).map(l=>{const vals=parseCsvLine(l),o={};header.forEach((h,i)=>o[h]=vals[i]??'');return o});
+}
+function truthyWin(v,status){
+  const s=String(status||v||'').toLowerCase();
+  if(s.includes('won')||s==='win'||s==='true')return true;
+  if(s.includes('lost')||s==='loss'||s==='false')return false;
+  const n=Number(v);return Number.isFinite(n)?n>0:null;
+}
+function importRows(rows){
+  let added=0;const byMarket={};
+  for(const row of rows){
+    const market=String(row.market||row.symbol||row.underlying_symbol||row.market_symbol||'').trim()||SYMBOL;
+    if(!byMarket[market])byMarket[market]=loadHistory(market);
+    const target=byMarket[market];
+    const hasSingle=String(row.direction||'').toUpperCase();
+    if((hasSingle==='DOWN'||hasSingle==='UP')){
+      const won=truthyWin(row.won,row.status||row.result||row.outcome);if(won!==null){target.push({direction:hasSingle,win:won,timestamp:row.timestamp||new Date().toISOString(),source:'csv',market});added++;}
+      continue;
+    }
+    const dpnl=Object.prototype.hasOwnProperty.call(row,'down_pnl')?row.down_pnl:null;
+    const upnl=Object.prototype.hasOwnProperty.call(row,'up_pnl')?row.up_pnl:null;
+    const dw=truthyWin(dpnl,row.down_status);const uw=truthyWin(upnl,row.up_status);
+    if(dw!==null){target.push({direction:'DOWN',win:dw,timestamp:row.timestamp||new Date().toISOString(),source:'csv',market});added++;}
+    if(uw!==null){target.push({direction:'UP',win:uw,timestamp:row.timestamp||new Date().toISOString(),source:'csv',market});added++;}
+  }
+  for(const [m,arr] of Object.entries(byMarket))saveHistory(m,arr);
+  updateHistoryUI();log(`CSV import complete: ${added} directional observations merged across ${Object.keys(byMarket).length||0} market(s).`);return added;
+}
+
+function downloadCsv(){
+  if(!records.length)return;
+  const fields=['trade','timestamp','market','market_name','direction','stake','money_management','mm_level','live_tick','down_wr','up_wr','wr_gap_pp','n_down','n_up','lookback','contract_id','status','pnl','won','cumulative_pnl','max_drawdown'];
+  const lines=[fields.join(',')];for(const r of records)lines.push(fields.map(f=>JSON.stringify(r[f]??'')).join(','));
+  const blob=new Blob([lines.join('\n')],{type:'text/csv;charset=utf-8'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`deriv_${SYMBOL}_directional_winrate_results.csv`;a.click();setTimeout(()=>URL.revokeObjectURL(url),500);
+}
+
+$('discover').onclick=async()=>{if(running)return;try{$('discover').disabled=true;$('status').textContent='CONNECTING...';if(!ws||ws.readyState!==WebSocket.OPEN)await connect();await discoverEligibleMarkets();$('status').textContent='READY';}catch(e){$('status').textContent='FAILED';log(`DISCOVERY FAILED: ${e.message}`)}finally{$('discover').disabled=false}};
+$('marketSelect').onchange=()=>{if(running)return;SYMBOL=$('marketSelect').value||'1HZ75V';activeTickSubId=null;prices=[];lastHistoryEpoch=0;lastTickEpoch=0;liveTickCount=0;$('marketStatus').textContent=`Selected: ${marketLabel(SYMBOL)}. Fresh history will load at start.`;$('dataStatus').textContent='Data integrity: waiting for selected-market history.';updateHistoryUI();};
+$('lookback').oninput=updateHistoryUI;$('minObs').oninput=updateHistoryUI;$('gap').oninput=updateHistoryUI;
+$('maxTrades').oninput=()=>{$('trades').textContent=`${tradeNo} / ${Number($('maxTrades').value)||100}`};
+$('mmSwitch').onchange=()=>{if(running){$('mmSwitch').value=mmEnabled()?'off':'on';return}if($('mmSwitch').value==='off')mmLevel=0;updateMMUI();log(`Money management: ${mmEnabled()?'ON':'OFF'}`)};
+$('importCsv').onclick=async()=>{const f=$('csvFile').files[0];if(!f){log('Choose a CSV file first.');return}try{const text=await f.text();const rows=parseCsv(text);if(!rows.length)throw new Error('No data rows found');importRows(rows);}catch(e){log(`CSV import failed: ${e.message}`)}};
+$('historyAction').onchange=()=>{};
+$('applyHistoryAction').onclick=()=>{const act=$('historyAction').value;if(act==='clear'){localStorage.removeItem(historyKey(SYMBOL));updateHistoryUI();log(`Cleared stored directional history for ${marketLabel(SYMBOL)}.`);}else{const s=computeStats();log(`History for ${marketLabel(SYMBOL)}: ${loadHistory(SYMBOL).length} total stored, rolling DOWN ${s.downN}, UP ${s.upN}.`)}};
+$('csv').onclick=downloadCsv;
+$('stop').onclick=()=>{stopAfterTrade=true;$('stop').disabled=true;log('STOP requested. No new trade will start; current contract will finish.')};
+$('start').onclick=async()=>{
+  if(running)return;
+  const stake=Number($('stake').value);if(!(stake>=0.35))return log('Safety stop: base stake must be at least $0.35.');
+  const minObs=Number($('minObs').value),lookback=Number($('lookback').value);if(minObs*2>lookback)return log('Settings error: minimum observations × 2 cannot exceed the rolling lookback.');
+  resetSessionUI();running=true;$('start').disabled=true;$('stop').disabled=false;$('mmSwitch').disabled=true;$('status').textContent='CONNECTING...';
+  try{
+    if(!ws||ws.readyState!==WebSocket.OPEN)await connect();
+    if(eligibleMarkets.length===0||!eligibleMarkets.some(x=>x.underlying_symbol===SYMBOL)){await discoverEligibleMarkets();}
+    if(!eligibleMarkets.some(x=>x.underlying_symbol===SYMBOL)){eligibleMarkets=[{underlying_symbol:SYMBOL,underlying_symbol_name:SYMBOL}];}
+    const verified=await verifyAsianContracts(SYMBOL);if(!verified.hasDown||!verified.hasUp)throw new Error(`Selected market ${SYMBOL} does not expose both ASIAND and ASIANU.`);
+    log(`Starting ${marketLabel(SYMBOL)} | lookback=${lookback} | minObs=${minObs} | gap=${Number($('gap').value).toFixed(1)}pp | base=$${stake.toFixed(2)} | MM=${mmEnabled()?'ON':'OFF'}`);
+    updateHistoryUI();await loadCleanMarket();featureText();$('status').textContent='RUNNING';
+    if(!computeStats().direction)log('No trade yet: waiting for a qualifying rolling win-rate gap.');
+  }catch(e){running=false;$('start').disabled=false;$('stop').disabled=true;$('mmSwitch').disabled=false;$('status').textContent='FAILED';log(`FAILED: ${e.message}`)}
+};
+updateMMUI();updateHistoryUI();$('trades').textContent=`0 / ${Number($('maxTrades').value)||100}`;
+})();
+</script>
+</body>
+</html>
