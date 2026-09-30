@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>V75 Asian Bot V24 — Live Deriv Executor</title>
+<style>
+body{font-family:Arial,sans-serif;background:#0b1220;color:#e5e7eb;margin:0;padding:20px}.wrap{max-width:1250px;margin:auto}
+.card{background:#111827;border:1px solid #334155;border-radius:14px;padding:16px;margin:12px 0}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+input,select,button{width:100%;box-sizing:border-box;padding:10px;border-radius:8px;border:1px solid #475569;background:#07101d;color:#fff}
+button{background:#2563eb;border:0;font-weight:700;cursor:pointer}.danger{background:#b91c1c}.safe{background:#15803d}.secondary{background:#334155}
+label{display:block;color:#94a3b8;font-size:12px;margin-bottom:5px}table{width:100%;border-collapse:collapse}th,td{padding:7px;border-bottom:1px solid #334155;text-align:right}th:first-child,td:first-child{text-align:left}
+pre{white-space:pre-wrap;background:#020617;padding:12px;border-radius:8px;max-height:380px;overflow:auto}.muted{color:#94a3b8}.good{color:#86efac}.warn{color:#fbbf24}.bad{color:#fca5a5}.big{font-size:22px;font-weight:800}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="card">
+<h1>V75 Asian Bot V24</h1>
+<p><b>Live Deriv executor — ML vs Random-Walk Deviation</b></p>
+<p class="muted">This version can connect to Deriv, stream 1HZ75V ticks, generate a V23-style signal, request a proposal and place a contract. Start in DEMO mode. REAL mode is explicitly gated.</p>
+</div>
+
+<div class="card">
+<h2>Connection</h2>
+<div class="grid">
+<div><label>Account mode</label><select id="mode"><option value="demo">DEMO</option><option value="real">REAL</option></select></div>
+<div><label>Account ID</label><input id="account" placeholder="e.g. DOT..."></div>
+<div><label>Deriv App ID</label><input id="appid" placeholder="Your registered App ID"></div>
+<div><label>Authorization token</label><input id="token" type="password" placeholder="PAT / OAuth token"></div>
+<div><label>Symbol</label><input id="symbol" value="1HZ75V"></div>
+<div><label>Currency</label><input id="currency" value="USD"></div>
+</div>
+<p class="small muted">The token is kept only in this browser session. Do not paste a token into GitHub or any public HTML file. Deriv's current API uses an authenticated OTP-generated WebSocket URL for account trading.</p>
+<button onclick="connect()">Connect to Deriv</button>
+<button class="secondary" onclick="disconnect()">Disconnect</button>
+<div id="conn" class="muted">Disconnected.</div>
+</div>
+
+<div class="card">
+<h2>Risk controls</h2>
+<div class="grid">
+<div><label>Base stake USD</label><input id="stake" type="number" value="0.35" min="0.35" step="0.01"></div>
+<div><label>Max stake USD</label><input id="maxstake" type="number" value="12" min="0.35" step="0.01"></div>
+<div><label>Loss multiplier</label><input id="mult" type="number" value="1.8" min="1" step="0.05"></div>
+<div><label>Max consecutive losses</label><input id="maxloss" type="number" value="6" min="0" step="1"></div>
+<div><label>Minimum ML probability</label><input id="minp" type="number" value="0.55" min="0.5" max="0.95" step="0.01"></div>
+<div><label>Minimum ML-RW edge</label><input id="edge" type="number" value="0.05" min="0" max="0.5" step="0.01"></div>
+<div><label>Contract duration (ticks)</label><input id="duration" type="number" value="5" min="1" max="20"></div>
+<div><label>Cooldown ticks</label><input id="cooldown" type="number" value="5" min="0"></div>
+</div>
+<p class="warn">Live trading is high risk. A martingale can escalate losses rapidly. V24 has a hard max-stake and loss-streak stop, but those controls do not guarantee a profit or prevent loss.</p>
+</div>
+
+<div class="card">
+<h2>Execution</h2>
+<div class="grid">
+<div><button class="safe" onclick="startBot()">START BOT</button></div>
+<div><button class="danger" onclick="stopBot()">STOP BOT</button></div>
+<div><button class="secondary" onclick="buyOne()">TEST ONE SIGNAL</button></div>
+</div>
+<div class="grid">
+<div><span class="muted">Status</span><div id="status" class="big">STOPPED</div></div>
+<div><span class="muted">Signal</span><div id="signal" class="big">—</div></div>
+<div><span class="muted">RW P(UP)</span><div id="rw" class="big">—</div></div>
+<div><span class="muted">ML P(UP)</span><div id="ml" class="big">—</div></div>
+<div><span class="muted">Edge</span><div id="ed" class="big">—</div></div>
+<div><span class="muted">Stake</span><div id="stk" class="big">—</div></div>
+</div>
+</div>
+
+<div class="card">
+<h2>Trade log</h2>
+<table><thead><tr><th>Time</th><th>Direction</th><th>Stake</th><th>Contract</th><th>Result</th><th>P/L</th></tr></thead><tbody id="trades"></tbody></table>
+<pre id="log"></pre>
+</div>
+</div>
+
+<script>
+let ws=null, running=false, prices=[], ticksSinceTrade=999, pending=false, lossStreak=0, currentStake=0.35, tradeRows=[];
+let req=1, contractId=null, activeTrade=null, lastSignal=null;
+
+const $=id=>document.getElementById(id);
+function log(s){$("log").textContent=new Date().toISOString()+" "+s+"\n"+$("log").textContent.slice(0,12000);}
+function send(o){if(!ws||ws.readyState!==1)throw Error("Not connected");o.req_id=req++;ws.send(JSON.stringify(o));}
+function erf(x){let s=x<0?-1:1;x=Math.abs(x);let a1=.254829592,a2=-.284496736,a3=1.421413741,a4=-1.453152027,a5=1.061405429,p=.3275911,t=1/(1+p*x);return s*(1-(((((a5*t+a4)*t+a3)*t+a2)*t+a1)*t)*Math.exp(-x*x));}
+function cdf(x){return .5*(1+erf(x/Math.sqrt(2)));}
+function mean(a){return a.length?a.reduce((x,y)=>x+y,0)/a.length:0}
+function sd(a){if(a.length<2)return 0;let m=mean(a);return Math.sqrt(mean(a.map(x=>(x-m)**2)))}
+function sigmoid(x){return 1/(1+Math.exp(-Math.max(-30,Math.min(30,x))))}
+
+function feats(){
+ let p=prices,w=p.slice(-31),d=[];for(let i=1;i<w.length;i++)d.push(w[i]-w[i-1]);
+ let sma5=mean(p.slice(-5)),sma10=mean(p.slice(-10)),sma20=mean(p.slice(-20));
+ let vol=sd(d)||1,m3=p.length>=4?p.at(-1)-p.at(-4):0,m5=p.length>=6?p.at(-1)-p.at(-6):0;
+ let acc=p.length>=7?(p.at(-1)-p.at(-4))-(p.at(-4)-p.at(-7)):0,drift=mean(d);
+ let last=d.slice(-10),up=last.filter(x=>x>0).length/(last.length||1),run=0,sgn=0;
+ for(let i=d.length-1;i>=0;i--){let s=Math.sign(d[i]);if(!s)continue;if(!sgn)sgn=s;if(s===sgn)run++;else break}
+ let rev=0;for(let i=1;i<last.length;i++)if(Math.sign(last[i])!==Math.sign(last[i-1])&&last[i]&&last[i-1])rev++;
+ let rw=Math.max(.01,Math.min(.99,cdf((drift*Math.sqrt(Number($("duration").value)))/vol)));
+ return {m3,m5,acc,vol,drift,up,run,rev,z:m5/vol,dist:(p.at(-1)-sma5)/vol,slope:(sma5-sma10)/vol,rw};
+}
+
+/* Lightweight online logistic model.
+   It starts neutral and learns only from settled live observations.
+   For production research, preload a separately validated model rather than
+   assuming that a live account can discover an edge immediately. */
+let model={w:new Array(11).fill(0),mu:new Array(11).fill(0),sig:new Array(11).fill(1),n:0};
+let online=[];
+function vec(f){return [f.m3,f.m5,f.acc,f.vol,f.up,f.run,f.rev,f.z,f.dist,f.slope,f.rw]}
+function pred(f){let x=vec(f),z=0;for(let i=0;i<x.length;i++)z+=model.w[i]*((x[i]-model.mu[i])/(model.sig[i]||1));return sigmoid(z)}
+function train(){
+ if(online.length<50)return;
+ let X=online.map(o=>o.x),y=online.map(o=>o.y);
+ for(let j=0;j<11;j++){let a=X.map(r=>r[j]),m=mean(a),s=sd(a)||1;model.mu[j]=m;model.sig[j]=s}
+ for(let it=0;it<40;it++){let g=new Array(11).fill(0);for(let i=0;i<X.length;i++){let z=0;for(let j=0;j<11;j++)z+=model.w[j]*((X[i][j]-model.mu[j])/model.sig[j]);let e=sigmoid(z)-y[i];for(let j=0;j<11;j++)g[j]+=e*((X[i][j]-model.mu[j])/model.sig[j])}for(let j=0;j<11;j++)model.w[j]-=.04*g[j]/X.length}
+ model.n=X.length;
+}
+function analyze(){
+ if(prices.length<31)return null;
+ let f=feats(),ml=pred(f),rw=f.rw,edge=ml-rw;
+ let hybrid=rw+.65*edge;
+ let direction=hybrid>=.5?"UP":"DOWN";
+ let conf=Math.max(hybrid,1-hybrid);
+ return {f,ml,rw,edge,hybrid,direction,conf};
+}
+function eligible(a){
+ let minp=Number($("minp").value),edge=Number($("edge").value);
+ return a && Math.abs(a.edge)>=edge && a.conf>=minp && Math.abs(a.hybrid-.5)>=.01;
+}
+function connect(){
+ if($("mode").value==="real" && !confirm("REAL ACCOUNT MODE: this bot can place real-money contracts. Continue?"))return;
+ let token=$("token").value.trim(),appid=$("appid").value.trim(),account=$("account").value.trim(),mode=$("mode").value;
+ if(!token||!appid||!account){alert("Enter App ID, account ID and authorization token.");return}
+ $("conn").textContent="Requesting authenticated WebSocket URL...";
+ fetch("https://api.derivws.com/trading/v1/options/accounts/"+encodeURIComponent(account)+"/otp",{method:"POST",headers:{"Authorization":"Bearer "+token,"Deriv-App-ID":appid}})
+ .then(r=>r.json()).then(j=>{
+   if(!j.data||!j.data.url)throw Error(JSON.stringify(j));
+   ws=new WebSocket(j.data.url);
+   ws.onopen=()=>{ $("conn").innerHTML='<span class="good">Connected ('+mode.toUpperCase()+')</span>';log("Connected.");send({ticks:$("symbol").value,subscribe:1});}
+   ws.onmessage=e=>handle(JSON.parse(e.data));
+   ws.onerror=e=>log("WebSocket error");
+   ws.onclose=()=>{$("conn").textContent="Disconnected.";running=false}
+ }).catch(e=>{ $("conn").innerHTML='<span class="bad">Connection failed</span>';log("Auth error: "+e.message)})
+}
+function disconnect(){running=false;if(ws)ws.close();ws=null}
+function startBot(){
+ if(!ws||ws.readyState!==1){alert("Connect first.");return}
+ running=true;$("status").textContent="RUNNING";log("Bot started.");
+}
+function stopBot(){running=false;$("status").textContent="STOPPED";pending=false;log("Bot stopped.");}
+function buyOne(){if(!ws||ws.readyState!==1){alert("Connect first.");return}let a=analyze();if(!eligible(a)){alert("Current signal does not meet the V24 filters.");return}execute(a)}
+function execute(a){
+ if(pending||ticksSinceTrade<Number($("cooldown").value)||lossStreak>=Number($("maxloss").value))return;
+ let stake=Math.min(currentStake,Number($("maxstake").value));let type=a.direction==="UP"?"CALL":"PUT";
+ pending=true;lastSignal=a; $("stk").textContent=stake.toFixed(2);log(`Proposal ${type}, stake ${stake}, ML=${a.ml.toFixed(4)}, RW=${a.rw.toFixed(4)}, edge=${a.edge.toFixed(4)}`);
+ send({proposal:1,amount:stake,basis:"stake",contract_type:type,currency:$("currency").value,duration:Number($("duration").value),duration_unit:"t",underlying_symbol:$("symbol").value});
+}
+function handle(d){
+ if(d.error){log("API error: "+(d.error.message||JSON.stringify(d.error)));pending=false;return}
+ if(d.msg_type==="tick"){
+   let q=Number(d.tick.quote);prices.push(q);if(prices.length>300)prices.shift();ticksSinceTrade++;
+   let a=analyze();if(a){$("rw").textContent=(a.rw*100).toFixed(2)+"%";$("ml").textContent=(a.ml*100).toFixed(2)+"%";$("ed").textContent=(a.edge*100).toFixed(2)+" pp";$("signal").textContent=a.direction+" "+(a.conf*100).toFixed(1)+"%";if(running&&eligible(a)&&!pending)execute(a)}
+   return
+ }
+ if(d.msg_type==="proposal"){
+   let id=d.proposal&&d.proposal.id;if(!id){pending=false;return}
+   let price=Number(d.proposal.ask_price);if(!Number.isFinite(price)){pending=false;return}
+   send({buy:id,price});
+   return
+ }
+ if(d.msg_type==="buy"){
+   contractId=d.buy.contract_id;activeTrade={id:contractId,stake:Number($("stk").textContent),direction:lastSignal.direction,time:new Date().toLocaleTimeString()};
+   ticksSinceTrade=0;log("BOUGHT contract "+contractId);
+   send({proposal_open_contract:1,contract_id:contractId,subscribe:1});
+   return
+ }
+ if(d.msg_type==="proposal_open_contract"){
+   let c=d.proposal_open_contract;if(!c)return;
+   if(c.is_sold||c.status==="sold"||c.is_expired){
+      let profit=Number(c.profit||0),y=profit>0?1:0;
+      if(activeTrade&&lastSignal){online.push({x:vec(lastSignal.f),y});train();}
+      if(profit>0){lossStreak=0;currentStake=Number($("stake").value)}else{lossStreak++;currentStake=Math.min(Number($("maxstake").value),Math.max(Number($("stake").value),currentStake*Number($("mult").value)))}
+      tradeRows.unshift([activeTrade.time,activeTrade.direction,activeTrade.stake.toFixed(2),activeTrade.id,profit>0?"WIN":"LOSS",profit.toFixed(2)]);renderTrades();
+      log(`SETTLED ${profit>0?"WIN":"LOSS"} P/L=${profit.toFixed(2)} lossStreak=${lossStreak} nextStake=${currentStake.toFixed(2)}`);
+      pending=false;activeTrade=null;lastSignal=null;
+   }
+ }
+}
+function renderTrades(){$("trades").innerHTML=tradeRows.slice(0,50).map(r=>"<tr>"+r.map(x=>"<td>"+x+"</td>").join("")+"</tr>").join("")}
+</script>
+</body>
+</html>
