@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>V75 Asian Bot V23 — Random-Walk Deviation Model</title>
+<style>
+body{font-family:Arial,sans-serif;background:#0f172a;color:#e5e7eb;margin:0;padding:24px}
+.wrap{max-width:1200px;margin:auto}.card{background:#111827;border:1px solid #334155;border-radius:14px;padding:18px;margin:14px 0}
+h1,h2{margin-top:0}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+label{font-size:12px;color:#94a3b8;display:block;margin-bottom:5px}input,select,button{width:100%;box-sizing:border-box;padding:10px;border-radius:8px;border:1px solid #475569;background:#0b1220;color:#fff}
+button{cursor:pointer;background:#2563eb;border:0;font-weight:700}button.secondary{background:#334155}
+pre{white-space:pre-wrap;word-break:break-word;background:#020617;padding:12px;border-radius:8px;max-height:420px;overflow:auto}
+table{width:100%;border-collapse:collapse}th,td{padding:8px;border-bottom:1px solid #334155;text-align:right}th:first-child,td:first-child{text-align:left}
+.good{color:#86efac}.warn{color:#fbbf24}.bad{color:#fca5a5}.muted{color:#94a3b8}
+.small{font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="card">
+<h1>V75 Asian Bot V23</h1>
+<p><b>ML vs Random-Walk Deviation Model</b> — research/paper-trading build.</p>
+<p class="muted">V23 treats the random-walk probability as the null baseline and measures whether the predictive model finds a persistent deviation from it. No real-money execution is enabled in this research build.</p>
+</div>
+
+<div class="card">
+<h2>1. Configuration</h2>
+<div class="grid">
+<div><label>Symbol</label><input id="symbol" value="1HZ75V"></div>
+<div><label>Horizon (ticks)</label><input id="horizon" type="number" value="5" min="1"></div>
+<div><label>Training window</label><input id="train" type="number" value="500" min="50"></div>
+<div><label>Walk-forward test block</label><input id="test" type="number" value="100" min="20"></div>
+<div><label>Random-walk simulations</label><input id="sims" type="number" value="1000" min="100" step="100"></div>
+<div><label>Minimum model probability</label><input id="minp" type="number" value="0.55" min="0.5" max="0.9" step="0.01"></div>
+<div><label>Minimum ML-RW edge</label><input id="edge" type="number" value="0.05" min="0" max="0.5" step="0.01"></div>
+<div><label>Regime</label><select id="regime"><option value="all">All</option><option value="trend">Trend</option><option value="meanrev">Mean Reversion</option><option value="transition">Transition</option></select></div>
+</div>
+</div>
+
+<div class="card">
+<h2>2. Upload tick CSV</h2>
+<input id="file" type="file" accept=".csv">
+<p class="small muted">CSV should contain a price/tick column. Optional timestamp column is supported. The app attempts to identify common price fields automatically.</p>
+<button onclick="runV23()">Run V23 walk-forward research</button>
+</div>
+
+<div class="card">
+<h2>3. Results</h2>
+<div id="status" class="muted">Waiting for tick data.</div>
+<div id="metrics"></div>
+<div id="buckets"></div>
+<pre id="log"></pre>
+</div>
+</div>
+
+<script>
+let lastRows=[];
+
+function erf(x){ // numerical approximation
+ const sign=x<0?-1:1; x=Math.abs(x);
+ const a1=0.254829592,a2=-0.284496736,a3=1.421413741,a4=-1.453152027,a5=1.061405429,p=0.3275911;
+ const t=1/(1+p*x);
+ const y=1-(((((a5*t+a4)*t+a3)*t+a2)*t+a1)*t)*Math.exp(-x*x);
+ return sign*y;
+}
+function normcdf(x){return 0.5*(1+erf(x/Math.sqrt(2)));}
+
+function col(rows,names){
+ let keys=Object.keys(rows[0]||{});
+ let low=keys.map(k=>[k,k.toLowerCase()]);
+ for(let n of names){
+   let z=low.find(x=>x[1]===n || x[1].includes(n));
+   if(z) return z[0];
+ }
+ return null;
+}
+function mean(a){return a.length?a.reduce((x,y)=>x+y,0)/a.length:0}
+function sd(a){if(a.length<2)return 0;let m=mean(a);return Math.sqrt(mean(a.map(x=>(x-m)**2)))}
+function sigmoid(x){return 1/(1+Math.exp(-Math.max(-30,Math.min(30,x))))}
+
+function features(p,i){
+ let w=p.slice(Math.max(0,i-30),i+1);
+ let d=[];
+ for(let j=1;j<w.length;j++)d.push(w[j]-w[j-1]);
+ let sma5=mean(p.slice(Math.max(0,i-4),i+1));
+ let sma10=mean(p.slice(Math.max(0,i-9),i+1));
+ let sma20=mean(p.slice(Math.max(0,i-19),i+1));
+ let m3=i>=3?p[i]-p[i-3]:0;
+ let m5=i>=5?p[i]-p[i-5]:0;
+ let acc=i>=6?(p[i]-p[i-3])-(p[i-3]-p[i-6]):0;
+ let vol=sd(d);
+ let drift=mean(d);
+ let last=d.slice(-10);
+ let up=last.filter(x=>x>0).length/(last.length||1);
+ let run=0,sgn=0;
+ for(let j=d.length-1;j>=0;j--){let s=Math.sign(d[j]);if(!s)continue;if(!sgn)sgn=s;if(s===sgn)run++;else break;}
+ let reversals=0;for(let j=1;j<last.length;j++)if(Math.sign(last[j])!==Math.sign(last[j-1]) && last[j] && last[j-1])reversals++;
+ let z=vol?m5/vol:0;
+ let rw=normcdf((drift*Math.sqrt(5))/(vol||1));
+ // cap baseline away from pathological 0/1
+ rw=Math.max(.01,Math.min(.99,rw));
+ let trend=(Math.abs(sma5-sma20)/(vol||1));
+ let regime=trend>1.5?'trend':(trend<0.5?'meanrev':'transition');
+ return {m3,m5,acc,vol,drift,up,run,reversals,z,rw,dist:(p[i]-sma5)/(vol||1),slope:(sma5-sma10)/(vol||1),regime};
+}
+
+function fitLogistic(X,y,steps=900,lr=.035){
+ if(!X.length)return null;
+ let m=X[0].length,w=new Array(m).fill(0),mu=[],sig=[];
+ for(let j=0;j<m;j++){let a=X.map(r=>r[j]),u=mean(a),s=sd(a)||1;mu[j]=u;sig[j]=s;}
+ let Z=X.map(r=>r.map((v,j)=>(v-mu[j])/sig[j]));
+ for(let it=0;it<steps;it++){
+   let g=new Array(m).fill(0);
+   for(let i=0;i<Z.length;i++){let z=0;for(let j=0;j<m;j++)z+=w[j]*Z[i][j];let e=sigmoid(z)-y[i];for(let j=0;j<m;j++)g[j]+=e*Z[i][j];}
+   for(let j=0;j<m;j++)w[j]-=lr*g[j]/Z.length;
+ }
+ return {w,mu,sig};
+}
+function predict(model,x){
+ let z=0;for(let j=0;j<x.length;j++)z+=model.w[j]*((x[j]-model.mu[j])/(model.sig[j]||1));
+ return sigmoid(z);
+}
+function brier(ps,ys){return mean(ps.map((p,i)=>(p-ys[i])**2))}
+function acc(ps,ys){return mean(ps.map((p,i)=>(p>=.5?1:0)===ys[i]?1:0))}
+
+function renderMetrics(rows){
+ let ys=rows.map(r=>r.y), rw=rows.map(r=>r.rw), ml=rows.map(r=>r.ml), hy=rows.map(r=>r.hy);
+ let out='<div class="grid">';
+ for(let [n,a] of [['Random Walk',rw],['ML',ml],['Hybrid',hy]]){
+   out+=`<div class="card"><h3>${n}</h3><div>Accuracy: <b>${(acc(a,ys)*100).toFixed(2)}%</b></div><div>Brier: <b>${brier(a,ys).toFixed(4)}</b></div><div>Mean P(UP): ${(mean(a)*100).toFixed(2)}%</div></div>`;
+ }
+ let edge=rows.map(r=>Math.abs(r.ml-r.rw));
+ out+=`<div class="card"><h3>ML vs RW</h3><div>Mean absolute edge: <b>${(mean(edge)*100).toFixed(2)} pp</b></div><div>Median absolute edge: ${(edge.sort((a,b)=>a-b)[Math.floor(edge.length/2)]*100).toFixed(2)} pp</div><div>Settled observations: ${rows.length}</div></div></div>`;
+ document.getElementById('metrics').innerHTML=out;
+
+ let bands=[[0,.02],[.02,.04],[.04,.06],[.06,.08],[.08,.10],[.10,1]];
+ let t='<h3>Absolute ML − RW edge buckets</h3><table><tr><th>Edge</th><th>N</th><th>Accuracy</th><th>Avg ML</th><th>Avg RW</th></tr>';
+ for(let [lo,hi] of bands){let a=rows.filter(r=>Math.abs(r.ml-r.rw)>=lo&&Math.abs(r.ml-r.rw)<hi);if(!a.length){t+=`<tr><td>${(lo*100).toFixed(0)}–${(hi*100).toFixed(0)} pp</td><td>0</td><td>—</td><td>—</td><td>—</td></tr>`;continue}t+=`<tr><td>${(lo*100).toFixed(0)}–${(hi*100).toFixed(0)} pp</td><td>${a.length}</td><td>${(acc(a.map(r=>r.hy),a.map(r=>r.y))*100).toFixed(1)}%</td><td>${(mean(a.map(r=>r.ml))*100).toFixed(1)}%</td><td>${(mean(a.map(r=>r.rw))*100).toFixed(1)}%</td></tr>`}
+ t+='</table>';document.getElementById('buckets').innerHTML=t;
+}
+
+async function runV23(){
+ const f=document.getElementById('file').files[0];if(!f){alert('Upload a tick CSV first.');return;}
+ const text=await f.text();let lines=text.trim().split(/\r?\n/);let sep=lines[0].includes(';')?';':',';
+ let headers=lines[0].split(sep).map(x=>x.trim().replace(/^"|"$/g,''));
+ let rows=lines.slice(1).map(line=>{let vals=line.split(sep);let o={};headers.forEach((h,i)=>o[h]=(vals[i]||'').replace(/^"|"$/g,''));return o;}).filter(x=>Object.keys(x).length);
+ let pc=col(rows,['price','quote','tick','spot','close','value']); if(!pc){document.getElementById('status').textContent='Could not identify a price column.';return;}
+ let p=rows.map(r=>Number(r[pc])).filter(Number.isFinite);
+ const H=Number(document.getElementById('horizon').value)||5;
+ const TRAIN=Number(document.getElementById('train').value)||500;
+ const TEST=Number(document.getElementById('test').value)||100;
+ const MINP=Number(document.getElementById('minp').value)||.55;
+ const EDGE=Number(document.getElementById('edge').value)||.05;
+ let observations=[];
+ // Build supervised observations. Features at i, outcome i+H.
+ for(let i=30;i+H<p.length;i++){
+   let ft=features(p,i);let y=p[i+H]>p[i]?1:0;
+   observations.push({i,y,ft});
+ }
+ let out=[];
+ // expanding walk-forward, refit each block
+ let start=Math.max(TRAIN,40);
+ for(let testStart=start;testStart<observations.length;testStart+=TEST){
+   let trainObs=observations.slice(0,testStart);
+   let X=trainObs.map(o=>[o.ft.m3,o.ft.m5,o.ft.acc,o.ft.vol,o.ft.up,o.ft.run,o.ft.reversals,o.ft.z,o.ft.dist,o.ft.slope,o.ft.rw]);
+   let y=trainObs.map(o=>o.y);
+   let model=fitLogistic(X,y);
+   let testObs=observations.slice(testStart,Math.min(testStart+TEST,observations.length));
+   for(let o of testObs){
+     let x=[o.ft.m3,o.ft.m5,o.ft.acc,o.ft.vol,o.ft.up,o.ft.run,o.ft.reversals,o.ft.z,o.ft.dist,o.ft.slope,o.ft.rw];
+     let ml=predict(model,x), rw=o.ft.rw;
+     // Deviation blend: use ML only when it has meaningful directional disagreement with RW.
+     let edge=ml-rw;
+     let hy=Math.max(.001,Math.min(.999,rw+0.65*edge));
+     let eligible=Math.abs(edge)>=EDGE && Math.max(ml,1-ml)>=MINP;
+     out.push({y:o.y,rw,ml,hy,edge,eligible,regime:o.ft.regime,i:o.i});
+   }
+ }
+ document.getElementById('status').innerHTML=`<span class="good">V23 complete.</span> Price column: <b>${pc}</b>. Observations: <b>${out.length}</b>.`;
+ renderMetrics(out);
+ let eligible=out.filter(r=>r.eligible);
+ let eacc=eligible.length?acc(eligible.map(r=>r.hy),eligible.map(r=>r.y)):0;
+ document.getElementById('log').textContent=
+ `V23 research summary
+---------------------
+File: ${f.name}
+Price column: ${pc}
+Horizon: ${H} ticks
+Expanding walk-forward training: ${TRAIN}
+Test block: ${TEST}
+
+Settled walk-forward observations: ${out.length}
+Eligible trades (|ML-RW| >= ${(EDGE*100).toFixed(1)}pp and confidence >= ${(MINP*100).toFixed(1)}%): ${eligible.length}
+Eligible accuracy: ${eligible.length?(eacc*100).toFixed(2):'—'}%
+
+Interpretation:
+- RW is the null baseline.
+- ML is trained only on past observations for each walk-forward block.
+- Hybrid = RW + 65% of the ML-vs-RW deviation.
+- The edge buckets show whether larger deviations from the random-walk baseline correspond to higher realized accuracy.
+- This is a research/paper-trading build; it does not execute live Deriv trades.`;
+ lastRows=out;
+}
+</script>
+</body>
+</html>
