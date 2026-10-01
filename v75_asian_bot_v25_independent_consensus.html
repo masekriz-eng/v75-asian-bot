@@ -1,0 +1,1057 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Asian Directional Bot — Multi-Strategy Acceleration Research v25</title>
+<style>
+body{font-family:Arial,sans-serif;margin:20px;background:#071a33;color:#e5eefc}
+.card{max-width:1420px;margin:auto;background:#0d2747;padding:22px;border-radius:14px;box-shadow:0 8px 30px rgba(0,0,0,.28)}
+h1{margin:0 0 6px}.sub{color:#b9cae3;line-height:1.45}
+.grid2{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+fieldset{border:1px solid #294a6e;border-radius:12px;padding:14px;margin-top:15px}legend{font-weight:700;padding:0 6px}
+label{display:block;margin-top:7px;font-weight:600;color:#dce8f8}
+input,select{width:100%;box-sizing:border-box;padding:9px;margin-top:5px;border:1px solid #456685;border-radius:8px;background:#081d35;color:#eef6ff}
+input:disabled,select:disabled{opacity:.7}.checkbox{display:flex;align-items:center;gap:8px;margin-top:10px;font-weight:600}.checkbox input{width:auto;margin:0}
+button{margin-top:15px;margin-right:8px;padding:11px 16px;border:0;border-radius:8px;background:#2563eb;color:#fff;cursor:pointer}button.stop{background:#dc2626}button.csv{background:#475569}button.warnbtn{background:#7c3aed}button:disabled{opacity:.5;cursor:not-allowed}
+.warn{margin-top:15px;padding:12px;border:1px solid #a86c18;background:#33220c;border-radius:9px;color:#f9d99a}.good{margin-top:15px;padding:12px;border:1px solid #2d8060;background:#0c3325;border-radius:9px;color:#bff0d7}
+.grid{display:grid;grid-template-columns:repeat(8,1fr);gap:9px;margin-top:18px}.metric{background:#0a213b;padding:11px;border-radius:9px}.metric b{display:block;margin-top:4px;font-size:16px}
+.readout{margin-top:12px;padding:12px;background:#081d35;border-radius:9px;line-height:1.55}.small{font-size:12px;color:#9db3ce;line-height:1.45}
+table{width:100%;border-collapse:collapse;margin-top:16px;font-size:11px}th,td{padding:7px;border-bottom:1px solid #294a6e;text-align:left;white-space:nowrap}
+#log{margin-top:16px;background:#061321;color:#dbeafe;padding:13px;min-height:190px;max-height:340px;white-space:pre-wrap;font-family:Consolas,monospace;font-size:12px;overflow:auto;border-radius:9px}
+.pill{display:inline-block;padding:2px 7px;border-radius:10px;background:#16395f;margin-right:4px;margin-bottom:3px}.ok{font-weight:700}.bad{opacity:.78}
+.notice{margin-top:12px;padding:10px;border:1px solid #365d83;background:#0a213b;border-radius:9px}
+@media(max-width:1120px){.grid{grid-template-columns:repeat(4,1fr)}.grid4,.grid3,.grid2{grid-template-columns:1fr 1fr}}
+@media(max-width:720px){.grid,.grid4,.grid3,.grid2{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="card">
+<h1>Asian Directional Bot — Multi-Strategy Acceleration Research — v25</h1>
+<p class="sub">Research build v25. Current Deriv public market-data WebSocket + authenticated account trading stream for Demo or Real Options accounts. One ASIANU/ASIAND trade at a time. Core direction requires Price vs previous-5 SMA + SMA slope + Momentum 3 to agree 3/3. SMA-side persistence is a configurable anti-noise filter. Directional normalized distance and normalized SMA slope are recorded for research; volatility and acceleration remain contextual, not hard filters. Volatility is contextual only. Rolling win rate is advisory in BALANCED mode. Winning-streak persistence affects sizing only. Loss progression and loss-streak protection are separate risk controls.</p>
+
+<fieldset><legend>Deriv account connection</legend><div class="grid4">
+<label>Account type<select id="accountType"><option value="demo" selected>DEMO — virtual funds</option><option value="real">REAL — live funds</option></select></label>
+<label>App ID<input id="appId" placeholder="Deriv App ID"></label>
+<label>Demo Options Account ID<input id="demoAccountId" value="DOT94618672" placeholder="DOT…"></label>
+<label>Real Options Account ID<input id="realAccountId" placeholder="Enter real account ID"></label>
+</div><div class="grid2">
+<label>PAT<input id="pat" type="password" autocomplete="off" placeholder="Paste PAT locally"></label>
+<label id="realArmWrap" class="checkbox"><input id="realArm" type="checkbox"> I understand that REAL mode places live-money trades</label>
+</div>
+<div id="accountStatus" class="notice">Account mode: DEMO. The bot will request a Demo-scoped authenticated WebSocket.</div>
+</fieldset>
+
+<fieldset><legend>Strategy & entry settings</legend><div class="grid4">
+<label>Market<select id="symbol"><option value="1HZ75V">V75 (1s)</option><option value="1HZ90V">V90 (1s)</option><option value="1HZ100V">V100 (1s)</option></select></label>
+<label>Base stake (USD)<input id="baseStake" type="number" value="0.35" min="0.35" step="0.01"></label>
+<label>Session target profit (USD)<input id="sessionTarget" type="number" value="0" min="0" step="0.01"></label>
+<label>Expiry (ticks)<input id="duration" type="number" value="5" min="1" max="10"></label>
+<label>Max trades<input id="maxTrades" type="number" value="100" min="1" max="10000"></label>
+<label>Live strategy<select id="strategyMode"><option value="technical" selected>TECHNICAL BASELINE</option><option value="consensus_2of4">2/4 STRATEGY CONSENSUS</option><option value="accel_confirmed">ACCELERATION-CONFIRMED</option><option value="accel_reversal">ACCELERATION-REVERSAL FOLLOW</option><option value="contrarian">CONTRARIAN EXHAUSTION</option><option value="research_only">RESEARCH ONLY — NO LIVE TRADES</option></select></label>
+<label>Consensus opposing vote<select id="consensusOpposing"><option value="allow" selected>ALLOW — majority can be opposed</option><option value="block">BLOCK — no opposing strategy</option></select></label>
+<label>Consensus acceleration filter<select id="consensusAccel"><option value="off" selected>OFF</option><option value="block_weakening">BLOCK WEAKENING / REVERSING</option><option value="strengthening_only">REQUIRE STRENGTHENING</option></select></label>
+<label>Consensus maximum distance<select id="consensusMaxDistance"><option value="1.5" selected>1.50σ</option><option value="2.0">2.00σ</option><option value="off">OFF</option></select></label>
+<label>Consensus loss guard<select id="consensusLossGuard"><option value="on" selected>ON — pause after 2 losses</option><option value="off">OFF</option></select></label>
+<label>Consensus pause after losses<input id="consensusPauseLosses" type="number" value="2" min="1" max="20" step="1"></label>
+<label>Consensus cooldown signals<input id="consensusCooldownSignals" type="number" value="5" min="0" max="100" step="1"></label>
+<label>Distance filter (σ)<input id="distanceThreshold" type="number" value="0.60" min="0" max="10" step="0.05"></label>
+<label>SMA side persistence (ticks)<input id="smaPersistence" type="number" value="2" min="1" max="3" step="1"></label>
+<label>Continuation distance (σ)<input id="continuationDistance" type="number" value="0.60" min="0" max="10" step="0.05"></label>
+<label>Continuation slope (σ)<input id="continuationSlope" type="number" value="0.15" min="0" max="5" step="0.01"></label>
+<label>Continuation acceleration (σ)<input id="continuationAccel" type="number" value="0.05" min="0" max="5" step="0.01"></label>
+<label>Exhaustion distance (σ)<input id="exhaustionDistance" type="number" value="1.00" min="0" max="10" step="0.05"></label>
+<label>Exhaustion acceleration (σ)<input id="exhaustionAccel" type="number" value="0.05" min="0" max="5" step="0.01"></label>
+<label>Chop distance (σ)<input id="chopDistance" type="number" value="0.40" min="0" max="10" step="0.05"></label>
+<label>Chop weak-slope (σ)<input id="chopSlope" type="number" value="0.10" min="0" max="5" step="0.01"></label>
+<label>Research spacing (ticks)<input id="researchSpacing" type="number" value="1" min="1" max="100" step="1"></label>
+<label>Research target samples<input id="researchTarget" type="number" value="1000" min="10" max="10000" step="10"></label>
+<label>Research sample filter<select id="researchFilter"><option value="qualifying" selected>QUALIFYING TECHNICAL SETUPS</option><option value="all">ALL CLEAN TICKS</option></select></label>
+<label>Core confirmation<select id="coreMode"><option value="three" selected>3/3 STRICT</option><option value="two">2/3 BALANCED</option><option value="two_wr">2/3 + WR TIE-BREAK</option></select></label>
+<label>WR treatment<select id="tradeMode"><option value="technical" selected>TECHNICAL — ignore WR</option><option value="balanced">BALANCED — WR advisory</option><option value="strict">STRICT — WR required</option></select></label>
+<label>2/3 WR warm-up<select id="wrWarmup"><option value="strict" selected>STRICT — WR required</option><option value="cold">COLD START — allow 2/3 until WR sample ready</option></select></label>
+<label>Rolling WR lookback<input id="lookback" type="number" value="20" min="5" max="200"></label>
+<label>Min WR observations / side<input id="minObs" type="number" value="10" min="1" max="200"></label>
+</div>
+<p class="small"><strong>V25 research design:</strong> every qualifying setup is evaluated under the same future 5-tick Asian settlement window. The live candidates remain <strong>Technical baseline</strong>, <strong>Acceleration-confirmed</strong>, <strong>Acceleration-reversal follow</strong>, and <strong>Contrarian exhaustion</strong>. The <strong>2/4 Strategy Consensus</strong> engine now uses <strong>independent directional opinions</strong> from all four strategy theses on every qualifying technical setup, even when a strategy's original live-entry conditions are not met. At least 2 votes are required, a 2–2 tie is rejected, and 3/4 or 4/4 consensus qualifies. Candidate-entry conditions remain unchanged for the individual strategies. Optional consensus filters can block opposing votes, block weakening/reversing acceleration, cap distance, and pause after consecutive consensus losses. Random remains a research/control strategy and is not a live consensus voter. The default remains flat $0.35 validation with no martingale.</p>
+<p class="notice"><strong>Independent consensus opinion model:</strong> Technical votes the technical direction. Acceleration-Confirmed votes the technical direction when acceleration supports it, otherwise the opposite technical direction. Acceleration-Reversal Follow votes the technical direction when acceleration is weakening/reversing, otherwise the opposite technical direction. Contrarian Exhaustion votes opposite technical direction when exhaustion conditions are active, otherwise it votes the technical direction. These four forced opinions are used only by the consensus engine; the original live candidate conditions are unchanged.</p>
+</fieldset>
+
+<fieldset><legend>Rolling win rate & streak persistence</legend><div class="grid4">
+<label>Minimum WR gap (pp)<input id="wrGap" type="number" value="5" min="0" step="0.5"></label>
+<label>Persistence streak<input id="persistStreak" type="number" value="3" min="2" max="6"></label>
+<label>Min persistence samples<input id="persistMin" type="number" value="10" min="1" max="100"></label>
+<label>Min persistence lift (pp)<input id="persistLift" type="number" value="2" min="-100" max="100" step="0.5"></label>
+<label>Winning-streak factor<input id="winFactor" type="number" value="1.15" min="1" max="5" step="0.01"></label>
+<label>Winning-streak cap (USD)<input id="winCap" type="number" value="2.00" min="0.35" step="0.01"></label>
+<label>Winning-streak boost<select id="winBoost"><option value="off" selected>OFF</option><option value="on">ON</option></select></label>
+<label>Persist history in browser<select id="persistHistory"><option value="on" selected>ON</option><option value="off">OFF</option></select></label>
+</div>
+<div class="notice">SMA side persistence is an entry-quality filter; normalized slope and signed distance are recorded for research only. Persistence is direction-specific: UP→UP→UP is an UP streak; DOWN→DOWN→DOWN is a DOWN streak. Changing direction resets the current winning streak for sizing. The persistence statistic is <strong>P(next win | N prior same-direction wins)</strong>.</div>
+</fieldset>
+
+<fieldset><legend>Loss progression — adjustable</legend><div class="grid4">
+<label>Loss progression<select id="lossMM"><option value="off" selected>OFF — validation flat stake</option><option value="on">ON</option></select></label>
+<label><strong>Loss progression factor</strong><input id="lossFactor" type="number" value="1.15" min="1" max="5" step="0.01"></label>
+<label>Maximum loss level<input id="lossMaxLevel" type="number" value="5" min="0" max="20" step="1"></label>
+<label>Maximum loss stake cap (USD)<input id="lossCap" type="number" value="0.70" min="0.35" step="0.01"></label>
+</div><p class="small">Next-trade stake after L consecutive losses = min(base × factor^min(L,max level), cap). Set the factor to 1.00 for flat staking. A win resets the loss progression to base.</p>
+</fieldset>
+
+<fieldset><legend>Loss-streak protection</legend><div class="grid4">
+<label>Protection<select id="protect"><option value="off" selected>OFF — clean validation</option><option value="on">ON — risk controls</option></select></label>
+<label>After 2 losses<input value="Full 3/3 core + distance" disabled></label>
+<label>After 3 losses require Mom5<select id="after3Mom5"><option value="on" selected>ON</option><option value="off">OFF</option></select></label>
+<label>Pause after losses<input id="pauseLosses" type="number" value="4" min="1" max="20" step="1"></label>
+<label>Cooldown valid signals<input id="cooldownSignals" type="number" value="10" min="0" max="100" step="1"></label>
+<label>Hard stop losses<input id="hardStopLosses" type="number" value="5" min="1" max="20" step="1"></label>
+<label>Record cooldown signals<select id="recordCooldown"><option value="on" selected>ON — paper record</option><option value="off">OFF</option></select></label>
+<label>Paper outcome duration<input id="paperDuration" type="number" value="5" min="1" max="10" step="1"></label>
+<label>Session loss stop (USD)<input id="lossLimit" type="number" value="10" min="0" step="0.35"></label>
+<label>Clear stored history<button id="clearHistory" type="button" class="warnbtn">CLEAR HISTORY</button></label>
+</div>
+<p class="small"><strong>Research samples:</strong> every configured number of ticks, when no live trade is active, the bot captures the current setup and later settles the selected strategy, technical baseline, opposite direction, continuation candidate, exhaustion candidate and deterministic random-control direction on the same future tick window. This is research-only.<br><br><strong>Cooldown records:</strong> when cooldown protection is active, each qualifying signal is recorded as a paper trade by default. It is never sent to Deriv, never changes rolling WR or streak state, and is settled after the configured paper duration using the Asian Up/Down rule (exit tick versus the average of the contract-period ticks).<br><br><strong>Connection resilience:</strong> both WebSockets send a keepalive ping every 25 seconds. If the idle authenticated trading socket drops, the bot automatically reconnects up to 3 times before stopping. If a contract is active when the trading socket drops, the bot stops safely and never opens a replacement trade.</p>
+<p class="small">The base entry rule follows the selected core confirmation mode + selected numeric distance threshold. After 2 losses, protection upgrades the core requirement to 3/3 + distance. After 3 losses, Momentum 5 must also agree. At 4 losses, trading pauses until 5 distinct valid signal events have appeared. At 5 losses, the session stops. When Session target profit is above $0, the bot stops opening new trades once cumulative session P/L reaches the target. The currently open contract is allowed to settle normally.</p>
+</fieldset>
+
+<fieldset><legend>Optional warm-start history</legend>
+<label>Import directional CSV (direction + won columns)<input id="historyFile" type="file" accept=".csv,text/csv"></label>
+<p class="small">Imported records are used only for rolling WR and persistence calculations. They are stored by market. Historical records from a different strategy are not proof of current behavior.</p>
+</fieldset>
+
+<button id="start">START TEST</button>
+<button id="stop" class="stop" disabled>STOP AFTER CURRENT TRADE</button>
+<button id="csv" class="csv" disabled>DOWNLOAD CSV</button>
+
+<div class="warn"><strong>Account safety:</strong> select DEMO or REAL deliberately. REAL mode requires the explicit arming checkbox before START. The PAT is used only in page memory and is never written to localStorage. Market data is read from a separate public WebSocket; trading uses an authenticated account-scoped WebSocket for the selected account. If either connection drops, the bot stops rather than opening another trade.</div>
+<div class="good"><strong>Decision flow:</strong> technical core → SMA persistence → selected live strategy → WR/protection checks → at most one directional trade. When <strong>2/4 STRATEGY CONSENSUS</strong> is selected, all four live strategy theses produce a directional opinion on the same setup: Technical Baseline, Acceleration-Confirmed, Acceleration-Reversal Follow, and Contrarian Exhaustion. A strict majority of at least 2 is required; 2–2 ties are rejected. The original strategy candidate rules are preserved separately and are still recorded for research. Consensus-specific opposing-vote, acceleration, distance, and loss-guard settings apply only to that live strategy. Random remains research-only.</div>
+
+<div class="grid">
+<div class="metric">Status<b id="status">READY</b></div>
+<div class="metric">Trades<b id="trades">0</b></div>
+<div class="metric">Wins<b id="wins">0</b></div>
+<div class="metric">Losses<b id="losses">0</b></div>
+<div class="metric">Loss streak<b id="lossStreak">0</b></div>
+<div class="metric">Same-dir win streak<b id="winStreak">0</b></div>
+<div class="metric">Cooldown<b id="cooldown">0</b></div>
+<div class="metric">Cooldown signals<b id="cooldownSignalsRecorded">0</b></div>
+<div class="metric">Paper wins<b id="paperWins">0</b></div>
+<div class="metric">Paper losses<b id="paperLosses">0</b></div>
+<div class="metric">Research samples<b id="researchSamples">0</b></div>
+<div class="metric">Selected shadow WR<b id="researchSelectedWR">N/A</b></div>
+<div class="metric">Technical shadow WR<b id="researchTechnicalWR">N/A</b></div>
+<div class="metric">Opposite shadow WR<b id="researchOppositeWR">N/A</b></div>
+
+
+<div class="metric">Accel-confirm WR<b id="researchAccelConfirmedWR">N/A</b></div>
+<div class="metric">Accel-reversal-follow WR<b id="researchAccelReversalWR">N/A</b></div>
+<div class="metric">Random control WR<b id="researchRandomWR">N/A</b></div>
+<div class="metric">Consensus 2/4 WR<b id="researchConsensusWR">N/A</b></div>
+<div class="metric">Consensus filtered WR<b id="researchConsensusFilteredWR">N/A</b></div>
+<div class="metric">Session P/L<b id="pnl">$0.00</b></div>
+<div class="metric">Target<b id="sessionTargetLive">Off</b></div>
+<div class="metric">Max DD<b id="dd">$0.00</b></div>
+<div class="metric">Current WR dir<b id="wrDir">N/A</b></div>
+<div class="metric">WR gap<b id="wrGapLive">0.0pp</b></div>
+<div class="metric">3-win persistence<b id="persistLive">N/A</b></div>
+<div class="metric">Persistence lift<b id="liftLive">N/A</b></div>
+<div class="metric">Next stake<b id="nextStake">$0.35</b></div>
+<div class="metric">Volatility<b id="volLive">N/A</b></div>
+<div class="metric">Distance<b id="distLive">N/A</b></div>
+</div>
+
+<div id="readout" class="readout">Waiting for live market data…</div>
+<div id="dataDebug" class="notice">Market data: DISCONNECTED | History: 0 ticks | Live ticks: 0 | Subscription: —</div>
+<table><thead><tr>
+<th>#</th><th>Account</th><th>Type</th><th>Time</th><th>Dir</th><th>Stake</th><th>Live Strategy</th><th>Regime</th><th>Tech</th><th>Core</th><th>Dist σ</th><th>Dist bucket</th><th>Signed σ</th><th>Slope σ</th><th>M3</th><th>M5</th><th>Accel σ</th><th>Accel state</th><th>Persist</th><th>Consensus</th><th>Selected</th><th>Technical</th><th>Accel-confirm</th><th>Accel-reversal</th><th>Contrarian</th><th>Random</th><th>Actual Outcome</th><th>Actual P/L</th><th>Reason</th>
+</tr></thead><tbody id="rows"></tbody></table>
+<div id="log"></div>
+<p class="small">Market data uses the current Deriv public Options WebSocket for live ticks, with the legacy public market-data WebSocket as a history compatibility fallback; trading remains on the authenticated WebSocket for the selected account. CSV includes features, decision state, stake controls, loss/win streaks, rolling WR, persistence statistics, cooldown state, P/L and drawdown. Use fresh demo observations for validation before using REAL mode.</p>
+</div>
+
+<script>
+(()=>{
+'use strict';
+const API='https://api.derivws.com';
+const PUBLIC_WS_URL='wss://api.derivws.com/trading/v1/options/ws/public';
+const LEGACY_PUBLIC_WS_URL='wss://ws.binaryws.com/websockets/v3';
+const HISTORY_PREFIX='asian_directional_history_v5_';
+let ws=null, marketWs=null, reqId=90000, marketReqId=30000, pending=new Map(), marketPending=new Map(), prices=[];
+let tradePingTimer=null, marketPingTimer=null, tradeReconnectInFlight=false, marketReconnectInFlight=false, reconnectAttempts=0;
+const PING_MS=25000, MAX_RECONNECT_ATTEMPTS=3;
+let activeTickSubId='', historyLastEpoch=0, lastLiveEpoch=0, liveTicksSeen=0;
+let running=false, stopAfter=false, signalTimer=null, tickSeq=0, lastEvaluatedTick=0, cooldownConsumedTick=0;
+let records=[], history={};
+let paperTrades=[],cooldownSignalsRecorded=0,paperWins=0,paperLosses=0;
+let researchTrackers=[],researchSampleCount=0,lastResearchStartTick=-999999;
+let researchCountersData={selected:{n:0,w:0},technical:{n:0,w:0},opposite:{n:0,w:0},accelConfirmed:{n:0,w:0},accelReversal:{n:0,w:0},contrarian:{n:0,w:0},random:{n:0,w:0},consensus:{n:0,w:0},consensusFiltered:{n:0,w:0}};
+let trades=0,wins=0,losses=0,lossStreak=0,sameDirWinStreak=0,sameDirWinDirection='',sessionPnl=0,peak=0,maxDD=0,cooldown=0;
+let active=null;
+const $=id=>document.getElementById(id);
+const num=id=>Number($(id).value);
+const sym=()=>$('symbol').value;
+const money=v=>`${v>=0?'+$':'-$'}${Math.abs(v).toFixed(2)}`;
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+function log(s){$('log').textContent+=`[${new Date().toLocaleTimeString()}] ${s}\n`;$('log').scrollTop=$('log').scrollHeight;}
+function historyKey(m=sym()){return HISTORY_PREFIX+m;}
+function loadHistory(m=sym()){
+  if(history[m])return history[m];
+  let arr=[];
+  if($('persistHistory').value==='on'){
+    try{const raw=localStorage.getItem(historyKey(m)); if(raw) arr=JSON.parse(raw);}catch(e){log(`History load warning: ${e.message}`);}
+  }
+  history[m]=Array.isArray(arr)?arr.filter(x=>x&&((x.direction==='UP')||(x.direction==='DOWN'))&&typeof x.won==='boolean').slice(-2000):[];
+  return history[m];
+}
+function saveHistory(m=sym()){
+  if($('persistHistory').value!=='on')return;
+  try{localStorage.setItem(historyKey(m),JSON.stringify(loadHistory(m).slice(-2000)));}catch(e){log(`History save warning: ${e.message}`);}
+}
+function clearHistory(){
+  const m=sym(); delete history[m];
+  try{localStorage.removeItem(historyKey(m));}catch(e){log(`History clear warning: ${e.message}`);}
+  updateReadout(); log(`Cleared stored directional history for ${m}.`);
+}
+function stats(direction){const all=loadHistory();const window=all.slice(-Math.max(1,Math.floor(num('lookback'))));const a=window.filter(x=>x.direction===direction);const n=a.length,w=a.filter(x=>x.won).length;return{n,w,wr:n?w/n:null,window:window.length};}
+function streakPersistence(direction,n){
+  const a=loadHistory();
+  const k=Math.max(2,Math.floor(n));
+  let sample=0,nextWins=0;
+  // Preserve the real chronological sequence. An UP persistence event requires
+  // k immediately preceding trades to all be UP wins; a direction change breaks
+  // the streak rather than being silently removed from the sequence.
+  for(let i=k;i<a.length;i++){
+    let ok=true;
+    for(let j=i-k;j<i;j++){
+      if(a[j]?.direction!==direction||a[j]?.won!==true){ok=false;break;}
+    }
+    if(ok){sample++;if(a[i]?.direction===direction&&a[i]?.won===true)nextWins++;}
+  }
+  return{sample,nextWins,prob:sample?nextWins/sample:null};
+}
+function directionFromDelta(v){return v>0?'UP':v<0?'DOWN':'NONE';}
+function volatilityBaseline(){
+  const a=prices.slice(0,-1); if(a.length<40)return null;
+  const vals=[];
+  for(let end=a.length-20;end>=0&&vals.length<40;end--){
+    const w=a.slice(end,end+20); if(w.length!==20)continue;
+    const m=w.reduce((s,x)=>s+x,0)/20;
+    const sd=Math.sqrt(w.reduce((s,x)=>s+(x-m)**2,0)/20);
+    if(Number.isFinite(sd))vals.push(sd);
+  }
+  if(!vals.length)return null; vals.sort((x,y)=>x-y); return vals[Math.floor(vals.length/2)];
+}
+function features(){
+  if(prices.length<20)return null;
+  const tick=prices.at(-1);
+  const sma5=prices.slice(-6,-1).reduce((a,b)=>a+b,0)/5;
+  const prevSma5=prices.slice(-7,-2).reduce((a,b)=>a+b,0)/5;
+  const slope=sma5-prevSma5;
+  const m3=tick-prices.at(-4);
+  const m5=tick-prices.at(-6);
+  const m10=prices.length>=11 ? tick-prices.at(-11) : m5;
+  const acceleration=m3-m5;
+  const acceleration2=m5-m10;
+  const s20=(()=>{const a=prices.slice(-20),m=a.reduce((x,y)=>x+y,0)/a.length;return Math.sqrt(a.reduce((q,x)=>q+(x-m)**2,0)/a.length)})();
+  const distance=Math.abs(tick-sma5);
+  const dRatio=s20>0?distance/s20:0;
+  const signedDistance=s20>0?(tick-sma5)/s20:null;
+  const normalizedSlope=s20>0?slope/s20:null;
+  const normalizedM3=s20>0?m3/s20:null;
+  const normalizedM5=s20>0?m5/s20:null;
+  const normalizedAcceleration=s20>0?acceleration/s20:null;
+  const normalizedAcceleration2=s20>0?acceleration2/s20:null;
+  const baseline=volatilityBaseline();
+  const volRatio=baseline&&baseline>0?s20/baseline:null;
+  const priceDir=directionFromDelta(tick-sma5);
+  const slopeDir=directionFromDelta(slope);
+  const m3Dir=directionFromDelta(m3);
+  const m5Dir=directionFromDelta(m5);
+  const accelDir=directionFromDelta(acceleration);
+  const accel2Dir=directionFromDelta(acceleration2);
+  const coreDirs=[priceDir,slopeDir,m3Dir];
+  const upVotes=coreDirs.filter(x=>x==='UP').length;
+  const downVotes=coreDirs.filter(x=>x==='DOWN').length;
+  const core=Math.max(upVotes,downVotes);
+  const unanimousDir=upVotes===3?'UP':downVotes===3?'DOWN':'NONE';
+  const majorityDir=upVotes>downVotes&&upVotes>=2?'UP':downVotes>upVotes&&downVotes>=2?'DOWN':'NONE';
+  const coreMode=$('coreMode').value;
+  const tech=coreMode==='three'?unanimousDir:majorityDir;
+  const coreQualified=coreMode==='three'?core===3:core>=2;
+  const smaSidePersistenceRequired=Math.max(1,Math.min(3,Math.floor(num('smaPersistence')||1)));
+  let smaSidePersistence=0;
+  if(priceDir!=='NONE'){
+    for(let offset=0;offset<smaSidePersistenceRequired;offset++){
+      const idx=prices.length-1-offset;
+      if(idx<5)break;
+      const priorSma=prices.slice(idx-5,idx).reduce((a,b)=>a+b,0)/5;
+      const side=directionFromDelta(prices[idx]-priorSma);
+      if(side!==priceDir)break;
+      smaSidePersistence++;
+    }
+  }
+  const smaPersistencePass=smaSidePersistence>=smaSidePersistenceRequired;
+  const distancePass=dRatio>=num('distanceThreshold');
+  const slopeStrength=Math.abs(normalizedSlope||0);
+  const accelStrength=Math.abs(normalizedAcceleration||0);
+  const momentumAgree=tech!=='NONE'&&m3Dir===tech&&m5Dir===tech;
+  const accelStrengthening=tech!=='NONE'&&accelDir===tech&&accelStrength>=num('continuationAccel');
+  const accelWeakening=tech!=='NONE'&&accelDir!==tech&&accelDir!=='NONE'&&accelStrength>=num('exhaustionAccel');
+  const continuationEligible=tech!=='NONE'&&coreQualified&&smaPersistencePass&&dRatio>=num('continuationDistance')&&slopeDir===tech&&slopeStrength>=num('continuationSlope')&&momentumAgree&&accelStrengthening;
+  const exhaustionEligible=tech!=='NONE'&&coreQualified&&smaPersistencePass&&dRatio>=num('exhaustionDistance')&&slopeDir===tech&&momentumAgree&&accelWeakening;
+  const accelerationConfirmedDir=continuationEligible?tech:'';
+  const accelerationReversalDir=(tech!=='NONE'&&coreQualified&&smaPersistencePass&&dRatio>=num('distanceThreshold')&&momentumAgree&&accelWeakening)?tech:'';
+  const contrarianDir=exhaustionEligible?(tech==='UP'?'DOWN':'UP'):'';
+  const accelerationState=accelStrengthening?'STRENGTHENING':accelWeakening?'WEAKENING / REVERSING':'NEUTRAL';
+  const distanceBucket=dRatio<0.60?'<0.6σ':dRatio<1.00?'0.6–1.0σ':dRatio<1.50?'1.0–1.5σ':dRatio<2.00?'1.5–2.0σ':'>=2.0σ';
+  let regime='CHOP / TRANSITION';
+  if(exhaustionEligible)regime='WEAKENING / EXHAUSTION';
+  else if(continuationEligible)regime='STRENGTHENING / CONTINUATION';
+  else if(momentumAgree&&accelWeakening)regime='WEAKENING TREND';
+  else if(dRatio>=num('chopDistance')&&slopeStrength>=num('chopSlope')&&momentumAgree)regime='MIXED / UNCONFIRMED';
+  const randomDirection=deterministicControlDirection(tick);
+  return{tick,sma5,slope,m3,m5,m10,acceleration,acceleration2,s20,distance,dRatio,signedDistance,normalizedSlope,normalizedM3,normalizedM5,normalizedAcceleration,normalizedAcceleration2,baseline,volRatio,priceDir,slopeDir,m3Dir,m5Dir,accelDir,accel2Dir,smaSidePersistenceRequired,smaSidePersistence,smaPersistencePass,tech,core,upVotes,downVotes,unanimousDir,majorityDir,coreMode,coreQualified,distancePass,slopeStrength,accelStrength,momentumAgree,accelStrengthening,accelWeakening,continuationEligible,exhaustionEligible,accelerationConfirmedDir,accelerationReversalDir,contrarianDir,regime,accelerationState,distanceBucket,continuationDir:accelerationConfirmedDir,exhaustionDir:contrarianDir,randomDirection};
+}
+function deterministicControlDirection(tick){
+  const n=Math.abs(Math.sin(Number(tick||0)*12.9898)*43758.5453)%1;
+  return n<0.5?'UP':'DOWN';
+}
+function asianOutcome(direction,ticks){
+  if(direction!=='UP'&&direction!=='DOWN')return null;
+  if(!Array.isArray(ticks)||!ticks.length)return null;
+  const avg=ticks.reduce((a,b)=>a+b,0)/ticks.length;
+  const exit=ticks.at(-1);
+  return direction==='UP'?exit>avg:exit<avg;
+}
+function oppositeDir(dir){return dir==='UP'?'DOWN':dir==='DOWN'?'UP':'';}
+function strategyConsensusOpinions(f){
+  if(!f||!f.tech)return{technical:'',accelConfirmed:'',accelReversal:'',contrarian:'',all:[]};
+  const tech=f.tech,opp=oppositeDir(tech);
+  // Forced directional opinions for consensus research. These do NOT alter the original
+  // candidate-entry rules used by the individual live strategies.
+  const accelConfirmed=(f.accelerationState==='STRENGTHENING' || f.accelDir===tech)?tech:opp;
+  const accelReversal=(f.accelerationState==='WEAKENING / REVERSING')?tech:opp;
+  const contrarian=(f.exhaustionEligible || (f.accelWeakening && f.dRatio>=Number($('exhaustionDistance').value||0)))?opp:tech;
+  return{
+    technical:tech,
+    accelConfirmed,
+    accelReversal,
+    contrarian,
+    all:[
+      {name:'TECHNICAL BASELINE',short:'T',dir:tech},
+      {name:'ACCELERATION-CONFIRMED',short:'AC',dir:accelConfirmed},
+      {name:'ACCELERATION-REVERSAL FOLLOW',short:'AR',dir:accelReversal},
+      {name:'CONTRARIAN EXHAUSTION',short:'CE',dir:contrarian}
+    ]
+  };
+}
+function strategyConsensus(f){
+  if(!f)return{dir:'',rawDir:'',upVotes:0,downVotes:0,totalVotes:0,opposingVotes:0,blockedReason:'No features',opinions:{}};
+  const opinions=strategyConsensusOpinions(f);
+  const votes=opinions.all;
+  const upVotes=votes.filter(v=>v.dir==='UP').length;
+  const downVotes=votes.filter(v=>v.dir==='DOWN').length;
+  const totalVotes=upVotes+downVotes;
+  const rawDir=upVotes>=2&&upVotes>downVotes?'UP':downVotes>=2&&downVotes>upVotes?'DOWN':'';
+  const opposingVotes=rawDir==='UP'?downVotes:rawDir==='DOWN'?upVotes:Math.min(upVotes,downVotes);
+  let filteredDir=rawDir,blockedReason='';
+  if(!rawDir)blockedReason=totalVotes<2?'CONSENSUS: fewer than 2 strategy opinions':'CONSENSUS: tie / no directional majority';
+  if(filteredDir && $('consensusOpposing').value==='block' && opposingVotes>0){filteredDir='';blockedReason=`CONSENSUS: opposing strategy opinion present (${opposingVotes})`;}
+  const accelMode=$('consensusAccel').value;
+  if(filteredDir && accelMode==='block_weakening' && f.accelerationState==='WEAKENING / REVERSING'){filteredDir='';blockedReason='CONSENSUS: acceleration weakening/reversing blocked';}
+  if(filteredDir && accelMode==='strengthening_only' && f.accelerationState!=='STRENGTHENING'){filteredDir='';blockedReason=`CONSENSUS: acceleration state ${f.accelerationState} is not strengthening`; }
+  const maxDist=$('consensusMaxDistance').value;
+  if(filteredDir && maxDist!=='off' && f.dRatio>Number(maxDist)){filteredDir='';blockedReason=`CONSENSUS: distance ${f.dRatio.toFixed(2)}σ > ${Number(maxDist).toFixed(2)}σ cap`; }
+  return{dir:filteredDir,rawDir,upVotes,downVotes,totalVotes,opposingVotes,blockedReason,votes,opinions};
+}
+function strategyDecision(f){
+  const requested=$('strategyMode').value;
+  if(!f)return{dir:'',regime:'NO DATA',reason:'No features'};
+  if(requested==='research_only')return{dir:'',regime:f.regime,reason:'RESEARCH ONLY: no live trade'};
+  if(requested==='technical')return f.tech?{dir:f.tech,regime:f.regime,reason:'TECHNICAL BASELINE: follow technical direction'}:{dir:'',regime:f.regime,reason:'No technical direction'};
+  if(requested==='consensus_2of4'){
+    const c=strategyConsensus(f);
+    if(!c.rawDir)return{dir:'',regime:f.regime,reason:c.blockedReason||'CONSENSUS: no 2+ majority',consensus:c};
+    if(!c.dir)return{dir:'',regime:'CONSENSUS BLOCKED',reason:c.blockedReason,consensus:c};
+    return{dir:c.dir,regime:c.upVotes>c.downVotes?'STRATEGY CONSENSUS':f.regime,reason:`2/4 STRATEGY CONSENSUS: ${c.dir} ${c.dir==='UP'?c.upVotes:c.downVotes}/4 votes`,consensus:c};
+  }
+  if(requested==='accel_confirmed')return f.accelerationConfirmedDir?{dir:f.accelerationConfirmedDir,regime:'STRENGTHENING / CONTINUATION',reason:'ACCELERATION-CONFIRMED: acceleration strengthens technical direction'}:{dir:'',regime:f.regime,reason:'Acceleration-confirmed criteria not met'};
+  if(requested==='accel_reversal')return f.accelerationReversalDir?{dir:f.accelerationReversalDir,regime:'WEAKENING TREND',reason:'ACCELERATION-REVERSAL FOLLOW: acceleration weakens/reverses but follow technical direction'}:{dir:'',regime:f.regime,reason:'Acceleration-reversal-follow criteria not met'};
+  if(requested==='contrarian')return f.contrarianDir?{dir:f.contrarianDir,regime:'WEAKENING / EXHAUSTION',reason:`CONTRARIAN EXHAUSTION: ${f.tech} technical direction + large distance + weakening acceleration → ${f.contrarianDir}`}:{dir:'',regime:f.regime,reason:'Contrarian exhaustion criteria not met'};
+  return{dir:'',regime:f.regime,reason:'Unknown strategy mode'};
+}
+
+function rollingDecision(f){
+  const down=stats('DOWN'),up=stats('UP'),minObs=num('minObs'),gapMin=num('wrGap');
+  const wrDir=(down.n>=minObs&&up.n>=minObs&&down.wr!==up.wr)?(down.wr>up.wr?'DOWN':'UP'):'';
+  const gap=(down.wr!==null&&up.wr!==null)?Math.abs(down.wr-up.wr)*100:0;
+  const wrQualified=Boolean(wrDir)&&gap>=gapMin;
+  const n=num('persistStreak');
+  const pThis=streakPersistence(f.tech,n);
+  const pOther=streakPersistence(f.tech==='UP'?'DOWN':'UP',n);
+  const base=stats(f.tech);
+  const lift=(pThis.prob!==null&&base.wr!==null)?(pThis.prob-base.wr)*100:null;
+  const persistQualified=pThis.sample>=num('persistMin')&&lift!==null&&lift>=num('persistLift');
+  return{down,up,wrDir,gap,wrQualified,pThis,pOther,lift,persistQualified};
+}
+function evaluateDecision(f,opts={}){
+  const d=rollingDecision(f),mode=$('tradeMode').value,coreMode=$('coreMode').value;
+  const ignoreCooldown=opts.ignoreCooldown===true;
+  const protectionOn=$('protect').value==='on';
+  const forceFullCore=protectionOn&&lossStreak>=2;
+  const requiredCore=forceFullCore?3:(coreMode==='three'?3:2);
+  const strategy=strategyDecision(f);
+  let reasons=[];
+  if(f.core<requiredCore)return{...d,dir:'',strategyDir:strategy.dir,regime:strategy.regime,strategyReason:strategy.reason,reasons:[`core requires ${requiredCore}/3; observed ${f.core}/3`]};
+  if(strategy.dir==='')return{...d,dir:'',strategyDir:'',regime:strategy.regime,strategyReason:strategy.reason,reasons:[strategy.reason]};
+  if(!f.distancePass)return{...d,dir:'',strategyDir:strategy.dir,regime:strategy.regime,strategyReason:strategy.reason,reasons:[`distance ${f.dRatio.toFixed(2)}σ < ${num('distanceThreshold').toFixed(2)}σ`]};
+  if(!f.smaPersistencePass)return{...d,dir:'',strategyDir:strategy.dir,regime:strategy.regime,strategyReason:strategy.reason,reasons:[`SMA side persistence ${f.smaSidePersistence}/${f.smaSidePersistenceRequired} < required`]};
+  if(coreMode==='two_wr'&&f.core===2){
+    if(!d.wrQualified){
+      const warmup=$('wrWarmup').value==='cold',sampleReady=d.down.n>=num('minObs')&&d.up.n>=num('minObs');
+      if(warmup&&!sampleReady)reasons.push('2/3 + WR TIE-BREAK: cold-start override');
+      else return{...d,dir:'',strategyDir:strategy.dir,regime:strategy.regime,strategyReason:strategy.reason,reasons:['2/3 + WR TIE-BREAK: WR not qualified']};
+    }else if(d.wrDir!==strategy.dir && d.wrDir!==f.tech)return{...d,dir:'',strategyDir:strategy.dir,regime:strategy.regime,strategyReason:strategy.reason,reasons:[`2/3 + WR TIE-BREAK: WR says ${d.wrDir}; strategy says ${strategy.dir}`]};
+    else reasons.push('2/3 + WR TIE-BREAK: WR compatible');
+  }
+  if(mode==='strict'){
+    if(!d.wrQualified)return{...d,dir:'',strategyDir:strategy.dir,regime:strategy.regime,strategyReason:strategy.reason,reasons:['STRICT WR: not qualified']};
+    if(d.wrDir!==strategy.dir)return{...d,dir:'',strategyDir:strategy.dir,regime:strategy.regime,strategyReason:strategy.reason,reasons:[`STRICT WR: says ${d.wrDir}; strategy says ${strategy.dir}`]};
+    reasons.push('STRICT WR agrees with strategy direction');
+  }else if(mode==='technical')reasons.push('TECHNICAL WR ignored');
+  else reasons.push(d.wrQualified?(d.wrDir===strategy.dir?'BALANCED: WR agrees':'BALANCED: WR disagrees'):'BALANCED: WR advisory');
+  if(protectionOn&&lossStreak>=3&&$('after3Mom5').value==='on'&&directionFromDelta(f.m5)!==strategy.dir)return{...d,dir:'',strategyDir:strategy.dir,regime:strategy.regime,strategyReason:strategy.reason,reasons:['loss protection: Momentum 5 disagrees after 3+ losses',...reasons]};
+  if(lossStreak>=2)reasons.push('2+ losses: 3/3 core + distance required');
+  if(!ignoreCooldown&&cooldown>0)return{...d,dir:'',strategyDir:strategy.dir,regime:strategy.regime,strategyReason:strategy.reason,reasons:[`cooldown active: ${cooldown} valid signals remaining`,...reasons]};
+  return{...d,dir:strategy.dir,strategyDir:strategy.dir,regime:strategy.regime,strategyReason:strategy.reason,reasons:[strategy.reason,...reasons]};
+}
+function baseSignalValid(f){
+  if(!f)return false;
+  const d=evaluateDecision(f,{ignoreCooldown:true});
+  return Boolean(d.dir);
+}
+
+function recordCooldownSignal(f){
+  if($('recordCooldown').value!=='on'){
+    cooldown=Math.max(0,cooldown-1);cooldownConsumedTick=tickSeq;updateMetrics();
+    if(cooldown===0)log('Cooldown complete. Waiting for the next valid signal.');return;
+  }
+  const decision=evaluateDecision(f,{ignoreCooldown:true});
+  const direction=decision.dir||f.tech;
+  const stake=calcStake(direction),rd=rollingDecision(f);
+  const paper={
+    trade:trades,timestamp:new Date().toISOString(),market:sym(),direction,stake,record_type:'COOLDOWN_PAPER',
+    account_type:$('accountType').value,account_id:(($('accountType').value==='real'?$('realAccountId').value:$('demoAccountId').value).trim()),strategy_mode:$('strategyMode').value,strategy_direction:direction,regime:decision.regime,strategy_reason:decision.strategyReason,technical_direction:f.tech,
+    core_votes:f.core,core_up_votes:f.upVotes,core_down_votes:f.downVotes,core_mode:f.coreMode,distance_ratio:f.dRatio,distance_bucket:f.distanceBucket,signed_distance_sigma:f.signedDistance,volatility_ratio:f.volRatio,distance_pass:f.distancePass,
+    sma_side_persistence_required:f.smaSidePersistenceRequired,sma_side_persistence:f.smaSidePersistence,sma_persistence_pass:f.smaPersistencePass,normalized_sma_slope:f.normalizedSlope,normalized_acceleration_sigma:f.normalizedAcceleration,
+    slope_dir:f.slopeDir,momentum3_dir:f.m3Dir,momentum5_dir:f.m5Dir,acceleration_dir:f.accelDir,momentum3:f.m3,momentum5:f.m5,acceleration:f.acceleration,
+    technical_candidate:f.tech,accel_confirmed_candidate:f.accelerationConfirmedDir||'',accel_reversal_candidate:f.accelerationReversalDir||'',contrarian_candidate:f.contrarianDir||'',random_control_direction:f.randomDirection,
+    wr_direction:rd.wrDir,wr_gap_pp:rd.gap,wr_warmup:$('wrWarmup').value,pnl:null,won:null,cumulative_pnl:sessionPnl,max_drawdown:maxDD,protection_mode:'COOLDOWN',cooldown_after_trade:Math.max(0,cooldown-1),
+    research_selected_shadow:null,research_technical_shadow:null,research_opposite_shadow:null,research_accel_confirmed_shadow:null,research_accel_reversal_shadow:null,research_contrarian_shadow:null,research_random_shadow:null,paper_entry_tick:f.tick,paper_ticks:[],paper_average:null,paper_exit_tick:null,paper_settled_after_ticks:null,paper_outcome:'PENDING',reason:decision.reasons.join('; ')
+  };
+  records.push(paper);paperTrades.push({rec:paper,remaining:Math.max(1,Math.floor(num('paperDuration'))),ticks:[]});cooldownSignalsRecorded++;addRow(paper);updateMetrics();
+  log(`COOLDOWN PAPER ${cooldownSignalsRecorded}: ${direction} | regime=${decision.regime} | entry=${f.tick.toFixed(2)} | waiting ${Math.max(1,Math.floor(num('paperDuration')))} ticks.`);
+  cooldown=Math.max(0,cooldown-1);cooldownConsumedTick=tickSeq;updateMetrics();if(cooldown===0)log('Cooldown complete. Waiting for the next valid signal.');
+}
+function researchStats(){return researchCountersData;}
+function pct(n,w){return n?((w/n)*100).toFixed(1)+'%':'N/A';}
+function updateResearchMetrics(){
+  const c=researchStats();
+  $('researchSamples').textContent=String(researchSampleCount);
+  $('researchSelectedWR').textContent=pct(c.selected.n,c.selected.w);
+  $('researchTechnicalWR').textContent=pct(c.technical.n,c.technical.w);
+  $('researchAccelConfirmedWR').textContent=pct(c.accelConfirmed.n,c.accelConfirmed.w);
+  $('researchAccelReversalWR').textContent=pct(c.accelReversal.n,c.accelReversal.w);
+  $('researchOppositeWR').textContent=pct(c.opposite.n,c.opposite.w);
+  $('researchRandomWR').textContent=pct(c.random.n,c.random.w);
+  $('researchConsensusWR').textContent=pct(c.consensus.n,c.consensus.w);
+  $('researchConsensusFilteredWR').textContent=pct(c.consensusFiltered.n,c.consensusFiltered.w);
+}
+
+function beginResearchSample(f,d){
+  if(!f||!d)return;
+  if(researchSampleCount>=Math.max(10,Math.floor(num('researchTarget'))))return;
+  if($('researchFilter').value==='qualifying' && !(f.tech!=='NONE'&&f.coreQualified&&f.smaPersistencePass&&f.distancePass))return;
+  const spacing=Math.max(1,Math.floor(num('researchSpacing')));
+  if(tickSeq-lastResearchStartTick<spacing)return;
+  const technical=f.tech||'';
+  const consensus=strategyConsensus(f);
+  const opinions=consensus.opinions;
+  const candidates={selected:d.dir||'',technical,opposite:technical==='UP'?'DOWN':technical==='DOWN'?'UP':'',accelConfirmed:f.accelerationConfirmedDir||'',accelReversal:f.accelerationReversalDir||'',contrarian:f.contrarianDir||'',random:f.randomDirection,consensus:consensus.rawDir||'',consensusFiltered:consensus.dir||''};
+  const rd=rollingDecision(f);
+  const rec={trade:trades+1,timestamp:new Date().toISOString(),market:sym(),direction:candidates.selected||'NONE',stake:0,record_type:'RESEARCH_SHADOW',account_type:$('accountType').value,account_id:(($('accountType').value==='real'?$('realAccountId').value:$('demoAccountId').value).trim()),
+    strategy_mode:$('strategyMode').value,strategy_direction:candidates.selected||'',regime:d.regime,strategy_reason:d.strategyReason,technical_direction:f.tech,core_votes:f.core,core_up_votes:f.upVotes,core_down_votes:f.downVotes,core_mode:f.coreMode,
+    distance_ratio:f.dRatio,distance_bucket:f.distanceBucket,signed_distance_sigma:f.signedDistance,volatility_ratio:f.volRatio,distance_pass:f.distancePass,sma_side_persistence_required:f.smaSidePersistenceRequired,sma_side_persistence:f.smaSidePersistence,sma_persistence_pass:f.smaPersistencePass,
+    normalized_sma_slope:f.normalizedSlope,normalized_acceleration_sigma:f.normalizedAcceleration,acceleration_state:f.accelerationState,slope_dir:f.slopeDir,momentum3_dir:f.m3Dir,momentum5_dir:f.m5Dir,acceleration_dir:f.accelDir,momentum3:f.m3,momentum5:f.m5,acceleration:f.acceleration,
+    technical_candidate:f.tech,continuation_candidate:candidates.continuation,exhaustion_candidate:candidates.exhaustion,random_control_direction:candidates.random,wr_direction:rd.wrDir,wr_gap_pp:rd.gap,wr_warmup:$('wrWarmup').value,
+    research_selected_direction:candidates.selected||'',research_technical_direction:candidates.technical||'',research_opposite_direction:candidates.opposite||'',research_accel_confirmed_direction:candidates.accelConfirmed||'',research_accel_reversal_direction:candidates.accelReversal||'',research_contrarian_direction:candidates.contrarian||'',research_random_direction:candidates.random,
+    research_selected_shadow:null,research_technical_shadow:null,research_opposite_shadow:null,research_accel_confirmed_shadow:null,research_accel_reversal_shadow:null,research_contrarian_shadow:null,research_random_shadow:null,research_consensus_shadow:null,research_consensus_filtered_shadow:null,consensus_up_votes:consensus.upVotes,consensus_down_votes:consensus.downVotes,consensus_total_votes:consensus.totalVotes,consensus_opposing_votes:consensus.opposingVotes,consensus_raw_direction:consensus.rawDir,consensus_filtered_direction:consensus.dir,consensus_block_reason:consensus.blockedReason,consensus_opinion_technical:opinions.technical,consensus_opinion_accel_confirmed:opinions.accelConfirmed,consensus_opinion_accel_reversal:opinions.accelReversal,consensus_opinion_contrarian:opinions.contrarian,research_entry_tick:f.tick,research_ticks:[],research_average:null,research_exit_tick:null,research_settled_after_ticks:null,research_outcome:'PENDING',reason:d.reasons?.join('; ')||d.strategyReason||''};
+  records.push(rec);researchTrackers.push({rec,ticks:[],remaining:Math.max(1,Math.floor(num('duration')))});researchSampleCount++;lastResearchStartTick=tickSeq;addRow(rec);updateMetrics();
+}
+function settleResearchSamples(latestTick){
+  if(!researchTrackers.length)return;
+  for(let i=researchTrackers.length-1;i>=0;i--){
+    const p=researchTrackers[i];p.ticks.push(latestTick);p.remaining--;if(p.remaining>0)continue;
+    const ticks=p.ticks.slice(),avg=ticks.reduce((a,b)=>a+b,0)/ticks.length,exit=ticks.at(-1);
+    const c={selected:asianOutcome(p.rec.research_selected_direction,ticks),technical:asianOutcome(p.rec.research_technical_direction,ticks),opposite:asianOutcome(p.rec.research_opposite_direction,ticks),accelConfirmed:asianOutcome(p.rec.research_accel_confirmed_direction,ticks),accelReversal:asianOutcome(p.rec.research_accel_reversal_direction,ticks),contrarian:asianOutcome(p.rec.research_contrarian_direction,ticks),random:asianOutcome(p.rec.research_random_direction,ticks),consensus:asianOutcome(p.rec.consensus_raw_direction,ticks),consensusFiltered:asianOutcome(p.rec.consensus_filtered_direction,ticks)};
+    p.rec.research_average=avg;p.rec.research_exit_tick=exit;p.rec.research_ticks=ticks;p.rec.research_settled_after_ticks=ticks.length;p.rec.research_selected_shadow=c.selected;p.rec.research_technical_shadow=c.technical;p.rec.research_opposite_shadow=c.opposite;p.rec.research_accel_confirmed_shadow=c.accelConfirmed;p.rec.research_accel_reversal_shadow=c.accelReversal;p.rec.research_contrarian_shadow=c.contrarian;p.rec.research_random_shadow=c.random;p.rec.research_consensus_shadow=c.consensus;p.rec.research_consensus_filtered_shadow=c.consensusFiltered;p.rec.research_outcome=c.selected===null?'NO CANDIDATE':c.selected?'WIN':'LOSS';p.rec.status='RESEARCH';
+    for(const k of Object.keys(c)){if(c[k]!==null){researchCountersData[k].n++;if(c[k])researchCountersData[k].w++;}}
+    updateRowForRecord(p.rec);updateMetrics();
+    log(`RESEARCH SETTLED: regime=${p.rec.regime} | consensus=${p.rec.consensus_raw_direction||'NONE'} ${c.consensus===null?'N/A':c.consensus?'WIN':'LOSS'} | filtered=${p.rec.consensus_filtered_direction||'NONE'} ${c.consensusFiltered===null?'N/A':c.consensusFiltered?'WIN':'LOSS'} | tech=${p.rec.research_technical_direction||'NONE'} ${c.technical===null?'N/A':c.technical?'WIN':'LOSS'} | opposite=${p.rec.research_opposite_direction||'NONE'} ${c.opposite===null?'N/A':c.opposite?'WIN':'LOSS'} | accel-confirm=${p.rec.research_accel_confirmed_direction||'NONE'} ${c.accelConfirmed===null?'N/A':c.accelConfirmed?'WIN':'LOSS'} | accel-reversal=${p.rec.research_accel_reversal_direction||'NONE'} ${c.accelReversal===null?'N/A':c.accelReversal?'WIN':'LOSS'} | contrarian=${p.rec.research_contrarian_direction||'NONE'} ${c.contrarian===null?'N/A':c.contrarian?'WIN':'LOSS'}`);
+    researchTrackers.splice(i,1);
+  }
+}
+
+function settlePaperTrades(latestTick){
+  if(!paperTrades.length)return;
+  for(let i=paperTrades.length-1;i>=0;i--){
+    const p=paperTrades[i];p.ticks.push(latestTick);p.remaining--;if(p.remaining>0)continue;
+    const won=asianOutcome(p.rec.direction,p.ticks),avg=p.ticks.reduce((a,b)=>a+b,0)/p.ticks.length,exit=p.ticks.at(-1);
+    p.rec.paper_average=avg;p.rec.paper_exit_tick=exit;p.rec.paper_ticks=p.ticks.slice();p.rec.paper_settled_after_ticks=p.ticks.length;p.rec.paper_outcome=won?'WIN':'LOSS';p.rec.outcome=won?'PAPER WIN':'PAPER LOSS';p.rec.status='PAPER';
+    p.rec.research_selected_shadow=won;p.rec.research_technical_shadow=asianOutcome(p.rec.technical_direction,p.ticks);p.rec.research_opposite_shadow=asianOutcome(p.rec.technical_direction==='UP'?'DOWN':p.rec.technical_direction==='DOWN'?'UP':'',p.ticks);p.rec.research_accel_confirmed_shadow=asianOutcome(p.rec.accel_confirmed_candidate,p.ticks);p.rec.research_accel_reversal_shadow=asianOutcome(p.rec.accel_reversal_candidate,p.ticks);p.rec.research_contrarian_shadow=asianOutcome(p.rec.contrarian_candidate,p.ticks);p.rec.research_random_shadow=asianOutcome(p.rec.random_control_direction,p.ticks);
+    if(won)paperWins++;else paperLosses++;updateRowForRecord(p.rec);paperTrades.splice(i,1);
+    log(`COOLDOWN PAPER SETTLED: ${p.rec.direction} ${won?'WIN':'LOSS'} | exit=${exit.toFixed(2)} | average=${avg.toFixed(2)} | no real stake placed.`);
+  }
+  updateMetrics();
+}
+function updateRowForRecord(r){
+  if(!r._rowElement)return;
+  r._rowElement.innerHTML=rowCells(r);
+}
+function rowCells(r){
+  const type=r.record_type==='COOLDOWN_PAPER'?'PAPER':r.record_type==='RESEARCH_SHADOW'?'RESEARCH':'LIVE';
+  const outcome=r.record_type==='LIVE'?(r.outcome||'PENDING'):(r.research_outcome||r.outcome||'PENDING');
+  const consVotes=r.consensus_up_votes==null&&r.consensus_down_votes==null?'—':`${r.consensus_up_votes||0}U/${r.consensus_down_votes||0}D`; const consOpinions=(r.consensus_opinion_technical||r.consensus_opinion_accel_confirmed||r.consensus_opinion_accel_reversal||r.consensus_opinion_contrarian)?`T:${r.consensus_opinion_technical||'—'} AC:${r.consensus_opinion_accel_confirmed||'—'} AR:${r.consensus_opinion_accel_reversal||'—'} CE:${r.consensus_opinion_contrarian||'—'} | `:'';
+  const consShadow=r.research_consensus_filtered_shadow!=null?(r.research_consensus_filtered_shadow?'W':'L'):(r.research_consensus_shadow!=null?(r.research_consensus_shadow?'W':'L'):'—');
+  return `<td>${r.trade}</td><td>${String(r.account_type||'').toUpperCase()}</td><td>${type}</td><td>${new Date(r.timestamp).toLocaleTimeString()}</td><td>${r.direction||r.strategy_direction||'NONE'}</td><td>$${Number(r.stake||0).toFixed(2)}</td><td>${r.strategy_mode||'—'}</td><td>${r.regime||'—'}</td><td>${r.technical_direction||'—'}</td><td>${r.core_votes==null?'—':r.core_votes+'/3'}</td><td>${r.distance_ratio==null?'—':Number(r.distance_ratio).toFixed(2)}</td><td>${r.distance_bucket||'—'}</td><td>${r.signed_distance_sigma==null?'—':Number(r.signed_distance_sigma).toFixed(2)}</td><td>${r.normalized_sma_slope==null?'—':Number(r.normalized_sma_slope).toFixed(3)}</td><td>${r.momentum3==null?'—':Number(r.momentum3).toFixed(2)}</td><td>${r.momentum5==null?'—':Number(r.momentum5).toFixed(2)}</td><td>${r.normalized_acceleration_sigma==null?'—':Number(r.normalized_acceleration_sigma).toFixed(3)}</td><td>${r.acceleration_state||'—'}</td><td>${r.sma_side_persistence==null?'—':`${r.sma_side_persistence}/${r.sma_side_persistence_required||''}`}</td><td>${consOpinions}${consVotes}${r.consensus_raw_direction?` ${r.consensus_raw_direction}${r.consensus_filtered_direction&&r.consensus_filtered_direction!==r.consensus_raw_direction?`→${r.consensus_filtered_direction}`:''}`:''}${r.consensus_filtered_direction===''&&r.consensus_block_reason?' BLOCK':''}</td><td>${r.research_selected_shadow==null?'—':r.research_selected_shadow?'W':'L'}</td><td>${r.research_technical_shadow==null?'—':r.research_technical_shadow?'W':'L'}</td><td>${r.research_opposite_shadow==null?'—':r.research_opposite_shadow?'W':'L'}</td><td>${r.research_accel_confirmed_shadow==null?'—':r.research_accel_confirmed_shadow?'W':'L'}</td><td>${r.research_accel_reversal_shadow==null?'—':r.research_accel_reversal_shadow?'W':'L'}</td><td>${r.research_contrarian_shadow==null?'—':r.research_contrarian_shadow?'W':'L'}</td><td>${r.research_random_shadow==null?'—':r.research_random_shadow?'W':'L'}</td><td>${outcome}</td><td>${r.pnl==null?'—':money(r.pnl)}</td><td>${r.reason||r.strategy_reason||''}${consShadow!=='—'?` | consensus=${consShadow}`:''}</td>`;
+}
+
+function maybeConsumeCooldown(f){
+  if(cooldown<=0||cooldownConsumedTick===tickSeq)return false;
+  if(baseSignalValid(f)){
+    recordCooldownSignal(f);
+  }
+  return true;
+}
+
+function roundStake(v){return Math.round(v*100)/100;}
+function calcStake(direction){
+  const base=num('baseStake'); let stake=base;
+  const lossFactor=Math.max(1,num('lossFactor')),lossLevel=Math.min(lossStreak,Math.max(0,Math.floor(num('lossMaxLevel')))),lossCap=Math.max(base,num('lossCap'));
+  if($('lossMM').value==='on'&&lossLevel>0)stake=Math.min(base*Math.pow(lossFactor,lossLevel),lossCap);
+  if($('winBoost').value==='on'&&sameDirWinDirection===direction&&sameDirWinStreak>=num('persistStreak')){
+    const p=streakPersistence(direction,num('persistStreak')),b=stats(direction),lift=(p.prob!==null&&b.wr!==null)?(p.prob-b.wr)*100:null;
+    if(p.sample>=num('persistMin')&&lift!==null&&lift>=num('persistLift')){
+      const exponent=sameDirWinStreak-num('persistStreak')+1;
+      stake=Math.min(stake*Math.pow(Math.max(1,num('winFactor')),exponent),Math.max(base,num('winCap')));
+    }
+  }
+  return Math.max(base,roundStake(stake));
+}
+function validateSettings(){
+  const base=num('baseStake');
+  if(!['demo','real'].includes($('accountType').value))throw new Error('Invalid account type.');
+  const selectedAccountId=(($('accountType').value==='real'?$('realAccountId').value:$('demoAccountId').value).trim());
+  if(!selectedAccountId)throw new Error(`Enter the ${$('accountType').value==='real'?'real':'demo'} Options account ID.`);
+  if($('realAccountId').value.trim()&&selectedAccountId===(($('accountType').value==='real'?$('demoAccountId').value:$('realAccountId').value).trim()))throw new Error('Real and Demo account IDs must be different.');
+  if($('accountType').value==='real'&&!$('realArm').checked)throw new Error('REAL mode requires the explicit arming checkbox.');
+  if(!Number.isFinite(base)||base<0.35)throw new Error('Base stake must be at least $0.35.')
+  if(num('duration')<1||num('duration')>10)throw new Error('Expiry must be 1–10 ticks.');
+  if(num('maxTrades')<1)throw new Error('Max trades must be at least 1.');
+  if(!Number.isFinite(num('distanceThreshold'))||num('distanceThreshold')<0||num('distanceThreshold')>10)throw new Error('Distance threshold must be a number from 0.00σ to 10.00σ.');
+  for(const id of ['continuationDistance','continuationSlope','continuationAccel','exhaustionDistance','exhaustionAccel','chopDistance','chopSlope'])if(!Number.isFinite(num(id))||num(id)<0)throw new Error(`${id} must be 0 or greater.`);
+  if(!Number.isInteger(num('researchSpacing'))||num('researchSpacing')<1)throw new Error('Research spacing must be a whole number >= 1.');
+  if(!Number.isInteger(num('smaPersistence'))||num('smaPersistence')<1||num('smaPersistence')>3)throw new Error('SMA side persistence must be 1–3 ticks.');
+  if(!Number.isFinite(num('sessionTarget'))||num('sessionTarget')<0)throw new Error('Session target profit must be 0 or greater.');
+  if(!['three','two','two_wr'].includes($('coreMode').value))throw new Error('Invalid core confirmation mode.');
+  if(!['technical','consensus_2of4','accel_confirmed','accel_reversal','contrarian','research_only'].includes($('strategyMode').value))throw new Error('Invalid live strategy mode.');
+  if(!['block','allow'].includes($('consensusOpposing').value))throw new Error('Invalid consensus opposing-vote setting.');
+  if(!['off','block_weakening','strengthening_only'].includes($('consensusAccel').value))throw new Error('Invalid consensus acceleration filter.');
+  if($('consensusMaxDistance').value!=='off' && (!Number.isFinite(Number($('consensusMaxDistance').value))||Number($('consensusMaxDistance').value)<=0))throw new Error('Invalid consensus maximum distance.');
+  if(!['on','off'].includes($('consensusLossGuard').value))throw new Error('Invalid consensus loss-guard setting.');
+  if(num('consensusPauseLosses')<1||num('consensusCooldownSignals')<0)throw new Error('Invalid consensus loss-guard thresholds.');
+  if(!Number.isInteger(num('researchTarget'))||num('researchTarget')<10)throw new Error('Research target must be a whole number >= 10.');
+  if(!['qualifying','all'].includes($('researchFilter').value))throw new Error('Invalid research sample filter.');
+  if(!['strict','cold'].includes($('wrWarmup').value))throw new Error('Invalid 2/3 WR warm-up mode.');
+  if(num('lookback')<5||num('minObs')<1)throw new Error('Invalid WR settings.');
+  if(num('persistStreak')<2||num('persistMin')<1)throw new Error('Invalid persistence settings.');
+  if(num('winFactor')<1||num('winCap')<base)throw new Error('Invalid winning-streak sizing settings.');
+  if(num('lossFactor')<1||num('lossCap')<base)throw new Error('Loss factor must be ≥ 1.00 and loss cap must be ≥ base stake.');
+  if(num('lossMaxLevel')<0||!Number.isInteger(num('lossMaxLevel')))throw new Error('Maximum loss level must be a whole number.');
+  if(num('pauseLosses')<1||num('cooldownSignals')<0||num('hardStopLosses')<1)throw new Error('Invalid loss-protection settings.');
+}
+function sendTrade(payload){
+  if(!ws||ws.readyState!==WebSocket.OPEN)return Promise.reject(new Error('Trade WebSocket is not open'));
+  const id=reqId++;
+  return new Promise((resolve,reject)=>{
+    const timer=setTimeout(()=>{pending.delete(id);reject(new Error(`Trade request timeout (${payload.proposal?'proposal':payload.buy?'buy':payload.proposal_open_contract?'proposal_open_contract':'request'})`));},15000);
+    pending.set(id,{resolve,reject,timer});
+    try{ws.send(JSON.stringify({...payload,req_id:id}));}catch(e){clearTimeout(timer);pending.delete(id);reject(e);}
+  });
+}
+async function getOpenPortfolio(){
+  const r=await sendTrade({portfolio:1});
+  return Array.isArray(r.portfolio?.contracts)?r.portfolio.contracts:[];
+}
+
+async function reconcileBuyAfterTimeout({direction,type,stake,startedAt}){
+  // A buy timeout is ambiguous: the server may have accepted the order even
+  // though the response did not arrive. Never blindly send another buy.
+  const deadline=Date.now()+5000;
+  let lastMatches=[];
+  while(Date.now()<deadline){
+    try{
+      const contracts=await getOpenPortfolio();
+      const matches=contracts.filter(c=>{
+        const ct=String(c.contract_type||'').toUpperCase();
+        const symb=String(c.underlying_symbol||'');
+        const buyPrice=Number(c.buy_price??c.purchase_price);
+        const purchaseTime=Number(c.purchase_time||0)*1000;
+        const typeOk=ct===type;
+        const symOk=!symb||symb===sym();
+        const stakeOk=!Number.isFinite(buyPrice)||Math.abs(buyPrice-stake)<=Math.max(0.02,stake*0.05);
+        const timeOk=!purchaseTime||purchaseTime>=startedAt-2000;
+        return typeOk&&symOk&&stakeOk&&timeOk;
+      });
+      lastMatches=matches;
+      if(matches.length===1)return{contractId:String(matches[0].contract_id),recovered:true};
+      if(matches.length>1)throw new Error(`BUY timeout reconciliation found ${matches.length} ambiguous matching open contracts; stopping safely.`);
+    }catch(e){
+      if(/ambiguous matching/.test(e.message))throw e;
+      log(`BUY reconciliation check warning: ${e.message}`);
+    }
+    await sleep(1000);
+  }
+  if(lastMatches.length===0)log('BUY reconciliation: no matching open contract found after timeout window.');
+  return null;
+}
+
+function sendMarket(payload){
+  if(!marketWs||marketWs.readyState!==WebSocket.OPEN)return Promise.reject(new Error('Market-data WebSocket is not open'));
+  const id=marketReqId++;
+  return new Promise((resolve,reject)=>{
+    const timer=setTimeout(()=>{marketPending.delete(id);reject(new Error(`Market request timeout (${payload.ticks_history?'ticks_history':payload.ticks?'ticks':'request'})`));},10000);
+    marketPending.set(id,{resolve,reject,timer});
+    try{marketWs.send(JSON.stringify({...payload,req_id:id}));}catch(e){clearTimeout(timer);marketPending.delete(id);reject(e);}
+  });
+}
+async function getOtp(app,acct,pat,accountType){
+  const r=await fetch(`${API}/trading/v1/options/accounts/${encodeURIComponent(acct)}/otp`,{method:'POST',headers:{Authorization:`Bearer ${pat}`,'Deriv-App-ID':app}});
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok)throw new Error(d?.errors?.[0]?.message||`OTP HTTP ${r.status}`);
+  const url=d?.data?.url;
+  if(!url)throw new Error('No WebSocket URL returned');
+  const expected=accountType==='real'?'/options/ws/real':'/options/ws/demo';
+  if(!String(url).includes(expected))throw new Error(`Safety stop: OTP returned a ${accountType==='real'?'non-Real':'non-Demo'} WebSocket endpoint.`);
+  return url;
+}
+function stopTradeHeartbeat(){if(tradePingTimer){clearInterval(tradePingTimer);tradePingTimer=null;}}
+function stopMarketHeartbeat(){if(marketPingTimer){clearInterval(marketPingTimer);marketPingTimer=null;}}
+function startTradeHeartbeat(socket){stopTradeHeartbeat();tradePingTimer=setInterval(()=>{if(socket===ws&&socket.readyState===WebSocket.OPEN){try{socket.send(JSON.stringify({ping:1,req_id:reqId++}));}catch{}}},PING_MS);}
+function startMarketHeartbeat(socket){stopMarketHeartbeat();marketPingTimer=setInterval(()=>{if(socket===marketWs&&socket.readyState===WebSocket.OPEN){try{socket.send(JSON.stringify({ping:1,req_id:marketReqId++}));}catch{}}},PING_MS);}
+async function disconnectTrade(){
+  stopTradeHeartbeat();
+  for(const [id,p] of pending){clearTimeout(p.timer);p.reject(new Error('Trade connection closed'));pending.delete(id);}
+  const old=ws;ws=null;
+  if(old){try{old.close();}catch{}}
+  await sleep(50);
+}
+async function disconnectMarket(){
+  stopMarketHeartbeat();
+  activeTickSubId='';
+  for(const [id,p] of marketPending){clearTimeout(p.timer);p.reject(new Error('Market-data connection closed'));marketPending.delete(id);}
+  const old=marketWs;marketWs=null;
+  if(old){try{old.close();}catch{}}
+  await sleep(50);
+}
+async function disconnectAll(){await disconnectMarket();await disconnectTrade();}
+function setDataDebug(){
+  $('dataDebug').textContent=`Market data: ${marketWs?.readyState===WebSocket.OPEN?'CONNECTED':'DISCONNECTED'} | History: ${Math.min(prices.length,120)}+ ticks | Live ticks: ${liveTicksSeen} | Subscription: ${activeTickSubId||'—'} | Last live epoch: ${lastLiveEpoch||'—'}`;
+}
+async function reconnectTradeIfIdle(){
+  if(!running||stopAfter||active||tradeReconnectInFlight)return;
+  tradeReconnectInFlight=true;
+  for(let attempt=reconnectAttempts+1; attempt<=MAX_RECONNECT_ATTEMPTS && running && !active && !stopAfter; attempt++){
+    reconnectAttempts=attempt;
+    try{
+      log(`Reconnecting authenticated trading WebSocket (attempt ${attempt}/${MAX_RECONNECT_ATTEMPTS})...`);
+      await disconnectTrade();
+      await connectTrade();
+      reconnectAttempts=0;
+      log('Trading connection restored. No trade was active, so the strategy can resume safely.');
+      tradeReconnectInFlight=false;
+      if(!active&&running)updateReadout();
+      return;
+    }catch(e){
+      log(`Trading reconnect attempt ${attempt} failed: ${e.message}`);
+      await sleep(Math.min(4000,1000*attempt));
+    }
+  }
+  tradeReconnectInFlight=false;
+  if(running){
+    running=false;$('start').disabled=false;$('stop').disabled=true;lockSettings(false);$('status').textContent='TRADE CONNECTION LOST';
+    log('Safety stop: unable to restore the Demo trading connection. No new trades will be placed.');
+  }
+}
+function handleTradeClose(){
+  stopTradeHeartbeat();
+  log(`Authenticated trading WebSocket closed${active?' while a trade was active':''}.`);
+  if(!running)return;
+  if(active){
+    // An open contract may exist. Do not blindly issue a replacement trade.
+    running=false;$('start').disabled=false;$('stop').disabled=true;lockSettings(false);$('status').textContent='TRADE CONNECTION LOST';
+    log('Safety stop: trading connection lost while a contract may be active. No replacement trade will be placed.');
+    return;
+  }
+  log('No active contract: attempting automatic trading WebSocket recovery.');
+  void reconnectTradeIfIdle();
+}
+function handleMarketClose(){
+  log('Public market-data WebSocket closed.');
+  setDataDebug();
+  if(running){
+    running=false;$('start').disabled=false;$('stop').disabled=true;lockSettings(false);$('status').textContent='MARKET DATA LOST';
+    log('Safety stop: live market data lost; no new trades will be placed.');
+  }
+}
+function handleMarketMessage(ev){
+  let m;try{m=JSON.parse(ev.data)}catch{return}
+  if(m.req_id&&marketPending.has(m.req_id)){
+    const p=marketPending.get(m.req_id);marketPending.delete(m.req_id);clearTimeout(p.timer);
+    if(m.error)p.reject(new Error(`${m.error.code||'API'}: ${m.error.message||''}`));else p.resolve(m);return;
+  }
+  if(m.error){log(`Market data API error ${m.error.code||''}: ${m.error.message||''}`);return;}
+  if(m.msg_type==='tick'){
+    const sid=String(m.subscription?.id||'');
+    if(!activeTickSubId||sid!==activeTickSubId)return;
+    const symbol=String(m.tick?.symbol||'');if(symbol&&symbol!==sym())return;
+    const q=Number(m.tick?.quote),ep=Number(m.tick?.epoch||0);
+    if(!Number.isFinite(q))return;
+    if(ep&&historyLastEpoch&&ep<=historyLastEpoch)return;
+    if(ep&&lastLiveEpoch&&ep<=lastLiveEpoch)return;
+    prices.push(q);if(prices.length>600)prices.shift();
+    lastLiveEpoch=ep||Math.floor(Date.now()/1000);liveTicksSeen++;
+    if(active&&!active.settled&&active.researchTicks.length<Math.max(1,Math.floor(num('duration'))))active.researchTicks.push(q);
+    settleResearchSamples(q);
+    settlePaperTrades(q);
+    setDataDebug();updateReadout();scheduleSignal();
+  }
+}
+async function connectTrade(){
+  const app=$('appId').value.trim(),accountType=$('accountType').value,acct=(accountType==='real'?$('realAccountId').value:$('demoAccountId').value).trim(),pat=$('pat').value.trim();
+  if(!app||!acct||!pat)throw new Error(`Enter App ID, ${accountType==='real'?'Real':'Demo'} account ID and PAT.`);
+  if(accountType==='real'&&!$('realArm').checked)throw new Error('REAL mode requires the explicit arming checkbox.');
+  await disconnectTrade();
+  const url=await getOtp(app,acct,pat,accountType);
+  const socket=new WebSocket(url);ws=socket;
+  await new Promise((res,rej)=>{
+    const timer=setTimeout(()=>rej(new Error('Trade WebSocket open timeout')),15000);
+    socket.addEventListener('open',()=>{clearTimeout(timer);res();},{once:true});
+    socket.addEventListener('error',()=>{clearTimeout(timer);rej(new Error('Trade WebSocket error during open'));},{once:true});
+  });
+  socket.onmessage=ev=>{
+    let m;try{m=JSON.parse(ev.data)}catch{return}
+    if(m.req_id&&pending.has(m.req_id)){
+      const p=pending.get(m.req_id);pending.delete(m.req_id);clearTimeout(p.timer);
+      if(m.error)p.reject(new Error(`${m.error.code||'API'}: ${m.error.message||''}`));else p.resolve(m);return;
+    }
+    if(m.msg_type==='proposal_open_contract')contractUpdate(m.proposal_open_contract||{});
+    if(m.error)log(`Trade API error ${m.error.code||''}: ${m.error.message||''}`);
+  };
+  socket.addEventListener('close',()=>{if(ws===socket)handleTradeClose();});
+  socket.addEventListener('error',()=>{if(running)log('Authenticated trading WebSocket error event received.');});
+  startTradeHeartbeat(socket);
+  reconnectAttempts=0;
+  $('status').textContent='TRADE CONNECTED';log(`Authenticated ${accountType==='real'?'REAL':'DEMO'} trading WebSocket connected for ${acct}.`);
+}
+async function openMarketSocket(url){
+  const socket=new WebSocket(url);
+  await new Promise((res,rej)=>{
+    let settled=false;
+    const finish=(fn,v)=>{if(settled)return;settled=true;clearTimeout(timer);fn(v);};
+    const timer=setTimeout(()=>finish(rej,new Error(`Market-data WebSocket open timeout: ${url}`)),10000);
+    socket.addEventListener('open',()=>finish(res,socket),{once:true});
+    socket.addEventListener('error',()=>finish(rej,new Error(`Market-data WebSocket error during open: ${url}`)),{once:true});
+  });
+  return socket;
+}
+async function connectMarket(){
+  await disconnectMarket();
+  let lastErr=null;
+  const urls=[PUBLIC_WS_URL,LEGACY_PUBLIC_WS_URL];
+  for(const url of urls){
+    try{
+      const socket=await openMarketSocket(url);
+      marketWs=socket;
+      socket.onmessage=handleMarketMessage;
+      socket.addEventListener('close',()=>{if(marketWs===socket)handleMarketClose();});
+      socket.addEventListener('error',()=>{if(running)log(`Public market-data WebSocket error event received (${url}).`);});
+      startMarketHeartbeat(socket);
+      log(`Public market-data WebSocket connected: ${url}`);
+      return;
+    }catch(e){
+      lastErr=e;
+      log(`Public market-data endpoint failed: ${url} | ${e.message}`);
+      try{marketWs?.close();}catch{}
+      marketWs=null;
+    }
+  }
+  throw lastErr||new Error('No public market-data WebSocket endpoint available.');
+}
+async function getLegacyHistory(symbol){
+  return await new Promise((resolve,reject)=>{
+    const socket=new WebSocket(LEGACY_PUBLIC_WS_URL);
+    const id=marketReqId++;
+    let settled=false;
+    const timer=setTimeout(()=>{if(settled)return;settled=true;try{socket.close()}catch{};reject(new Error(`Legacy history request timeout for ${symbol}.`));},12000);
+    const fail=(err)=>{if(settled)return;settled=true;clearTimeout(timer);try{socket.close()}catch{};reject(err instanceof Error?err:new Error(String(err)));};
+    socket.addEventListener('open',()=>{
+      try{
+        socket.send(JSON.stringify({ticks_history:symbol,count:120,end:'latest',style:'ticks',req_id:id}));
+      }catch(e){fail(e);}
+    });
+    socket.addEventListener('message',ev=>{
+      let m;try{m=JSON.parse(ev.data)}catch{return;}
+      if(m.req_id!==id)return;
+      if(m.error){fail(new Error(`${m.error.code||'API'}: ${m.error.message||'Legacy history request failed.'}`));return;}
+      if(m.msg_type!=='history')return;
+      if(settled)return;settled=true;clearTimeout(timer);try{socket.close()}catch{};resolve(m);
+    });
+    socket.addEventListener('error',()=>fail(new Error(`Legacy market-data WebSocket error for ${symbol}.`)));
+    socket.addEventListener('close',()=>{if(!settled)fail(new Error(`Legacy market-data WebSocket closed before history response for ${symbol}.`));});
+  });
+}
+async function loadCleanMarketData(){
+  if(!marketWs||marketWs.readyState!==WebSocket.OPEN)throw new Error('Market-data WebSocket is not connected.');
+  activeTickSubId='';historyLastEpoch=0;lastLiveEpoch=0;liveTicksSeen=0;prices=[];setDataDebug();
+  const m=sym();
+  try{await sendMarket({time:1});log('Public market-data server time check passed.');}catch(e){log(`Public server-time check failed: ${e.message}`);throw e;}
+  log(`Loading 120 clean historical ticks for ${m} from public market-data stream...`);
+  let h;
+  try{
+    try{
+      // The current Options public socket is used for the live stream. Some deployments reject
+      // ticks_history requests on that endpoint, so the history request is retried without
+      // subscription and then via the legacy public market-data socket as a compatibility fallback.
+      h=await sendMarket({ticks_history:m,count:120,end:'latest',style:'ticks'});
+    }catch(primaryErr){
+      log(`Current public socket history request failed: ${primaryErr.message}`);
+      log(`Falling back to legacy market-data WebSocket for historical ticks...`);
+      h=await getLegacyHistory(m);
+    }
+  }catch(e){
+    if(!running)throw e;
+    log(`Historical request failed: ${e.message}`);
+    throw e;
+  }
+  const hp=h.history||{},rawP=Array.isArray(hp.prices)?hp.prices:[],rawT=Array.isArray(hp.times)?hp.times:[];
+  const clean=rawP.map(Number).filter(Number.isFinite);
+  if(clean.length<120)throw new Error(`Only ${clean.length} clean historical ticks returned for ${m}; refusing to trade.`);
+  prices=clean.slice(-120);historyLastEpoch=rawT.length?Number(rawT.at(-1)||0):0;
+  if(!prices.every(Number.isFinite))throw new Error('Historical market data contains invalid prices.');
+  setDataDebug();
+  const sub=await sendMarket({ticks:m,subscribe:1});
+  const sid=String(sub.subscription?.id||'');if(!sid)throw new Error(`No market-data subscription id returned for ${m}.`);
+  activeTickSubId=sid;
+  if(sub.msg_type==='tick')handleMarketMessage({data:JSON.stringify(sub)});
+  log(`Subscribed to ${m} public live tick stream. Subscription=${sid}`);
+  const deadline=Date.now()+10000;
+  while(liveTicksSeen<1&&Date.now()<deadline)await sleep(100);
+  if(liveTicksSeen<1)throw new Error(`Timed out waiting for a newer live tick for ${m}.`);
+  const f=features();
+  if(!f||![f.tick,f.sma5,f.distance,f.m3,f.m5,f.slope,f.s20,f.acceleration].every(Number.isFinite))throw new Error(`Feature integrity check failed for ${m}.`);
+  log(`Market data ready: ${m} | 120 historical + ${liveTicksSeen} live tick(s) | latest=${f.tick.toFixed(2)} | SMA5=${f.sma5.toFixed(2)} | distance=${f.dRatio.toFixed(2)}σ`);
+}
+function updateMetrics(){
+  $('trades').textContent=String(trades);$('wins').textContent=String(wins);$('losses').textContent=String(losses);
+  $('lossStreak').textContent=String(lossStreak);$('winStreak').textContent=String(sameDirWinStreak);$('cooldown').textContent=String(cooldown);
+  $('cooldownSignalsRecorded').textContent=String(cooldownSignalsRecorded);$('paperWins').textContent=String(paperWins);$('paperLosses').textContent=String(paperLosses);updateResearchMetrics();
+  $('pnl').textContent=money(sessionPnl);$('dd').textContent=`$${maxDD.toFixed(2)}`;const st=Number(num('sessionTarget')||0);$('sessionTargetLive').textContent=st>0?`$${st.toFixed(2)}`:'Off';$('nextStake').textContent=`$${calcStake(sameDirWinDirection||'UP').toFixed(2)}`;
+}
+function updateReadout(){
+  const f=features();
+  if(!f){$('readout').textContent='Waiting for a newer live tick after the 120-tick clean history seed…';$('volLive').textContent='N/A';$('distLive').textContent='N/A';$('wrDir').textContent='N/A';$('wrGapLive').textContent='0.0pp';$('persistLive').textContent='N/A';$('liftLive').textContent='N/A';updateResearchMetrics();return;}
+  const d=rollingDecision(f),s=strategyDecision(f),p=thisPersistence(f,d),cons=strategyConsensus(f);
+  $('volLive').textContent=f.volRatio===null?'N/A':f.volRatio.toFixed(2)+'×';$('distLive').textContent=f.dRatio.toFixed(2)+'σ';$('wrDir').textContent=d.wrDir||'N/A';$('wrGapLive').textContent=d.gap.toFixed(1)+'pp';$('persistLive').textContent=p&&p.prob!==null?(p.prob*100).toFixed(1)+'%':'N/A';$('liftLive').textContent=d.lift===null?'N/A':(d.lift>=0?'+':'')+d.lift.toFixed(1)+'pp';
+  const pills=[`Strategy ${$('strategyMode').value}`,`Regime ${s.regime}`,`Tech ${f.tech||'NONE'}`,`Selected ${s.dir||'NO TRADE'}`,`Core ${f.core}/3`,`Cons ${cons.upVotes}U/${cons.downVotes}D`,`Dist ${f.dRatio.toFixed(2)}σ`,`Slope ${(f.normalizedSlope||0).toFixed(3)}σ`,`Accel ${(f.normalizedAcceleration||0).toFixed(3)}σ`,`Persist ${f.smaSidePersistence}/${f.smaSidePersistenceRequired}`,`Research ${researchSampleCount}`];
+  $('readout').innerHTML=pills.map(x=>`<span class="pill">${x}</span>`).join('')+`<br><span class="small">SMA5 ${f.sma5.toFixed(2)} | M3 ${f.m3.toFixed(2)} | M5 ${f.m5.toFixed(2)} | accelDir ${f.accelDir} | continuation ${f.continuationDir||'—'} | exhaustion ${f.exhaustionDir||'—'} | random ${f.randomDirection} | opinions T=${cons.opinions?.technical||'—'} AC=${cons.opinions?.accelConfirmed||'—'} AR=${cons.opinions?.accelReversal||'—'} CE=${cons.opinions?.contrarian||'—'} | consensus ${cons.rawDir||'NONE'} (${cons.upVotes}U/${cons.downVotes}D) | filtered ${cons.dir||'NO TRADE'}${cons.blockedReason?` | ${cons.blockedReason}`:''} | decision ${s.dir||'NO TRADE'} | ${s.reason}</span>`;
+  updateResearchMetrics();
+}
+function thisPersistence(f,d){if(!f||f.tech==='NONE'||!d)return null;return d.pThis.sample?d.pThis:null;}
+let lastScheduledTick=0;
+function scheduleSignal(){
+  if(!running||active)return;
+  const seq=++tickSeq;
+  lastScheduledTick=seq;
+  if(signalTimer)clearTimeout(signalTimer);
+  signalTimer=setTimeout(()=>{
+    signalTimer=null;
+    if(!running||active)return;
+    // Evaluate the newest tick only. A prior implementation compared the
+    // captured sequence with the already-incremented tick counter, which
+    // caused every scheduled evaluation to be discarded.
+    if(seq!==lastScheduledTick||seq===lastEvaluatedTick)return;
+    lastEvaluatedTick=seq;
+    evaluateSignal();
+  },40);
+}
+async function evaluateSignal(){
+  if(!running||active||prices.length<20)return;
+  const f=features();if(!f)return;
+  if($('protect').value==='on'&&lossStreak>=num('hardStopLosses')){finishRun('HARD STOP');return;}
+  if(sessionPnl<=-Math.abs(num('lossLimit'))){finishRun('LOSS STOP');return;}
+  const sessionTarget=Number(num('sessionTarget')||0);
+  if(sessionTarget>0&&sessionPnl>=sessionTarget){finishRun('TARGET PROFIT');return;}
+  if(cooldown>0){maybeConsumeCooldown(f);updateReadout();return;}
+  const d=evaluateDecision(f);
+  beginResearchSample(f,d);
+  updateReadout();
+  if(!d.dir)return;
+  if(trades>=num('maxTrades')){finishRun('COMPLETE');return;}
+  try{await execute(d.dir,f,d);}catch(e){log(`Trade failed: ${e.message}`);active=null;finishRun('TRADE ERROR');}
+}
+async function execute(direction,f,d){
+  const stake=calcStake(direction);
+  active={direction,stake,features:f,decision:d,contractId:null,settled:false,buyTime:null,researchTicks:[],lossStreakBefore:lossStreak,winStreakBefore:sameDirWinStreak,winDirectionBefore:sameDirWinDirection,protectionBefore:protectionMode()};
+  $('status').textContent=`BUY ${direction} $${stake.toFixed(2)}`;
+  const type=direction==='UP'?'ASIANU':'ASIAND';
+  const pr=await sendTrade({proposal:1,amount:stake,basis:'stake',contract_type:type,currency:'USD',duration:num('duration'),duration_unit:'t',underlying_symbol:sym()});
+  const ask=Number(pr.proposal?.ask_price),pid=pr.proposal?.id;if(!pid||!Number.isFinite(ask)||ask<=0)throw new Error('Invalid proposal response.');
+  const startedAt=Date.now();let b;
+  try{b=await sendTrade({buy:pid,price:ask});}catch(e){
+    if(/timeout \(buy\)/i.test(e.message)){log('BUY response timed out; reconciling for an accepted contract before taking any further action.');const rec=await reconcileBuyAfterTimeout({direction,type,stake,startedAt});if(!rec)throw new Error('BUY response timed out and no matching open contract was found; stopped without blind retry.');b={buy:{contract_id:rec.contractId}};log(`Recovered accepted ${direction} contract ${rec.contractId} after BUY timeout.`);}else throw e;
+  }
+  const cid=String(b.buy?.contract_id||'');if(!cid)throw new Error('No contract ID returned.');
+  active.contractId=cid;active.buyTime=startedAt;ws.send(JSON.stringify({proposal_open_contract:1,contract_id:Number(cid),subscribe:1,req_id:reqId++}));
+  log(`TRADE ${trades+1}: ${direction} $${stake.toFixed(2)} | strategy=${$('strategyMode').value} | regime=${d.regime} | tech=${f.tech} | core=${f.core}/3 | dist=${f.dRatio.toFixed(2)}σ | slope=${(f.normalizedSlope||0).toFixed(3)}σ | accel=${(f.normalizedAcceleration||0).toFixed(3)}σ`);
+  $('status').textContent='MONITORING';
+}
+function contractUpdate(c){
+  if(!active)return;if(String(c.contract_id)!==String(active.contractId))return;
+  const done=Boolean(c.is_sold)||c.status==='won'||c.status==='lost';if(!done||active.settled)return;active.settled=true;
+  const pnl=Number(c.profit||0),won=c.status==='won'||pnl>0,direction=active.direction,f=active.features,d=active.decision,ticks=active.researchTicks.slice();
+  const shadowSelected=asianOutcome(direction,ticks),shadowTechnical=asianOutcome(f.tech,ticks),shadowOpposite=asianOutcome(f.tech==='UP'?'DOWN':f.tech==='DOWN'?'UP':'',ticks),shadowAccelConfirmed=asianOutcome(f.accelerationConfirmedDir,ticks),shadowAccelReversal=asianOutcome(f.accelerationReversalDir,ticks),shadowContrarian=asianOutcome(f.contrarianDir,ticks),shadowRandom=asianOutcome(f.randomDirection,ticks);
+  trades++;if(won){wins++;lossStreak=0;if(sameDirWinDirection===direction)sameDirWinStreak++;else{sameDirWinDirection=direction;sameDirWinStreak=1;}}else{losses++;lossStreak++;sameDirWinDirection='';sameDirWinStreak=0;}
+  sessionPnl+=pnl;peak=Math.max(peak,sessionPnl);maxDD=Math.max(maxDD,peak-sessionPnl);
+  const rd=rollingDecision(f),ps=streakPersistence(direction,num('persistStreak')),base=stats(direction),lift=ps.prob!==null&&base.wr!==null?(ps.prob-base.wr)*100:null;
+  const rec={trade:trades,timestamp:new Date().toISOString(),market:sym(),direction,stake:active.stake,record_type:'LIVE',account_type:$('accountType').value,account_id:(($('accountType').value==='real'?$('realAccountId').value:$('demoAccountId').value).trim()),strategy_mode:$('strategyMode').value,strategy_direction:direction,regime:d.regime,strategy_reason:d.strategyReason,technical_direction:f.tech,
+    core_votes:f.core,core_up_votes:f.upVotes,core_down_votes:f.downVotes,core_mode:f.coreMode,consensus_up_votes:d.consensus?.upVotes??null,consensus_down_votes:d.consensus?.downVotes??null,consensus_total_votes:d.consensus?.totalVotes??null,consensus_opposing_votes:d.consensus?.opposingVotes??null,consensus_raw_direction:d.consensus?.rawDir||'',consensus_filtered_direction:d.consensus?.dir||'',consensus_block_reason:d.consensus?.blockedReason||'',consensus_opinion_technical:d.consensus?.opinions?.technical||'',consensus_opinion_accel_confirmed:d.consensus?.opinions?.accelConfirmed||'',consensus_opinion_accel_reversal:d.consensus?.opinions?.accelReversal||'',consensus_opinion_contrarian:d.consensus?.opinions?.contrarian||'',distance_ratio:f.dRatio,distance_bucket:f.distanceBucket,signed_distance_sigma:f.signedDistance,volatility_ratio:f.volRatio,distance_pass:f.distancePass,sma_side_persistence_required:f.smaSidePersistenceRequired,sma_side_persistence:f.smaSidePersistence,sma_persistence_pass:f.smaPersistencePass,
+    normalized_sma_slope:f.normalizedSlope,normalized_acceleration_sigma:f.normalizedAcceleration,acceleration_state:f.accelerationState,slope_dir:f.slopeDir,momentum3_dir:f.m3Dir,momentum5_dir:f.m5Dir,acceleration_dir:f.accelDir,momentum3:f.m3,momentum5:f.m5,acceleration:f.acceleration,technical_candidate:f.tech,accel_confirmed_candidate:f.accelerationConfirmedDir||'',accel_reversal_candidate:f.accelerationReversalDir||'',contrarian_candidate:f.contrarianDir||'',random_control_direction:f.randomDirection,
+    wr_direction:rd.wrDir,wr_gap_pp:rd.gap,wr_warmup:$('wrWarmup').value,persist_streak:num('persistStreak'),persist_samples:ps.sample,persist_prob:ps.prob,persist_lift_pp:lift,persist_qualified:ps.sample>=num('persistMin')&&lift!==null&&lift>=num('persistLift'),loss_streak_before:active.lossStreakBefore,loss_streak_after:lossStreak,same_direction_win_streak_before:active.winStreakBefore,same_direction_win_direction_before:active.winDirectionBefore,same_direction_win_streak_after:sameDirWinStreak,same_direction_win_direction_after:sameDirWinDirection,
+    pnl,won,cumulative_pnl:sessionPnl,max_drawdown:maxDD,protection_mode:active.protectionBefore,cooldown_after_trade:cooldown,rolling_window_size:rd.down.window,actual_contract_outcome:won?'WIN':'LOSS',research_selected_shadow:shadowSelected,research_technical_shadow:shadowTechnical,research_opposite_shadow:shadowOpposite,research_accel_confirmed_shadow:shadowAccelConfirmed,research_accel_reversal_shadow:shadowAccelReversal,research_contrarian_shadow:shadowContrarian,research_random_shadow:shadowRandom,research_ticks:ticks,research_average:ticks.length?ticks.reduce((a,b)=>a+b,0)/ticks.length:null,research_exit_tick:ticks.length?ticks.at(-1):null,research_settled_after_ticks:ticks.length,shadow_actual_match:shadowSelected===null?null:shadowSelected===won,
+    reason:d.reasons.join('; ')};
+  records.push(rec);addRow(rec);updateMetrics();log(`TRADE ${trades} ${direction} ${won?'WIN':'LOSS'} ${money(pnl)} | regime=${d.regime} | selected=${shadowSelected===null?'N/A':shadowSelected?'WIN':'LOSS'} | technical=${shadowTechnical===null?'N/A':shadowTechnical?'WIN':'LOSS'} | opposite=${shadowOpposite===null?'N/A':shadowOpposite?'WIN':'LOSS'} | accel-confirm=${shadowAccelConfirmed===null?'N/A':shadowAccelConfirmed?'WIN':'LOSS'} | accel-reversal=${shadowAccelReversal===null?'N/A':shadowAccelReversal?'WIN':'LOSS'} | contrarian=${shadowContrarian===null?'N/A':shadowContrarian?'WIN':'LOSS'} | session=${money(sessionPnl)}`);
+  active=null;
+  if($('strategyMode').value==='consensus_2of4'&&$('consensusLossGuard').value==='on'&&lossStreak>=num('consensusPauseLosses')){cooldown=Math.max(cooldown,Math.max(0,Math.floor(num('consensusCooldownSignals'))));cooldownConsumedTick=0;log(`Consensus loss guard: ${lossStreak} consecutive consensus losses reached threshold. Cooldown set to ${cooldown} valid signals.`);}
+  if($('protect').value==='on'&&lossStreak>=num('pauseLosses')){cooldown=num('cooldownSignals');cooldownConsumedTick=0;log(`Loss protection: ${lossStreak} losses reached pause threshold. Cooldown set to ${cooldown} valid signals.`);}
+  const sessionTarget=Number(num('sessionTarget')||0),targetReached=sessionTarget>0&&sessionPnl>=sessionTarget;
+  if(stopAfter||targetReached||trades>=num('maxTrades')||lossStreak>=num('hardStopLosses')||sessionPnl<=-Math.abs(num('lossLimit'))){finishRun(targetReached?'TARGET PROFIT':lossStreak>=num('hardStopLosses')?'HARD STOP':sessionPnl<=-Math.abs(num('lossLimit'))?'LOSS STOP':'COMPLETE');return;}
+  $('status').textContent='RUNNING';updateReadout();
+}
+function protectionMode(){
+  if($('protect').value!=='on')return 'OFF';
+  if(lossStreak>=num('hardStopLosses'))return 'HARD STOP';
+  if(cooldown>0)return 'COOLDOWN';
+  if(lossStreak>=3)return '3+ LOSSES: MOM5 REQUIRED';
+  if(lossStreak>=2)return '2+ LOSSES: FULL CORE + DISTANCE';
+  return 'NORMAL';
+}
+function addRow(r){
+  const tr=document.createElement('tr');
+  tr.innerHTML=rowCells(r);
+  Object.defineProperty(r,'_rowElement',{value:tr,writable:true,enumerable:false});
+  $('rows').appendChild(tr);tr.scrollIntoView({block:'nearest'});
+}
+function finishRun(reason){
+  running=false;$('start').disabled=false;$('stop').disabled=true;$('csv').disabled=records.length===0;$('status').textContent=reason;updateMetrics();
+  if(signalTimer){clearTimeout(signalTimer);signalTimer=null;}
+  if(paperTrades.length)log(`RUN ENDED: ${reason} | ${paperTrades.length} cooldown paper signal(s) remained unsettled; they do not affect real P/L or streaks.`);
+  log(`RUN ENDED: ${reason} | trades=${trades} | W=${wins} L=${losses} | P/L=${money(sessionPnl)} | Max DD=$${maxDD.toFixed(2)}`);
+  // Keep the WebSocket closed so a completed test cannot continue receiving ticks silently.
+  disconnectAll();
+}
+
+function csvCell(value){
+  if(value===null||value===undefined)return '';
+  let s=(Array.isArray(value)||typeof value==='object')?JSON.stringify(value):String(value);
+  if(/[\",\r\n]/.test(s))s=`"${s.replace(/"/g,'""')}"`;
+  return s;
+}
+function downloadCsv(){
+  if(!records.length)return;
+  // Build the union of all record fields and escape every CSV cell correctly,
+  // including arrays such as paper_ticks.
+  const seen=new Set(),fields=[];
+  for(const r of records){
+    for(const k of Object.keys(r)){
+      if(k.startsWith('_')||seen.has(k))continue;
+      seen.add(k);fields.push(k);
+    }
+  }
+  const lines=[fields.map(csvCell).join(',')];
+  for(const r of records)lines.push(fields.map(k=>csvCell(r[k])).join(','));
+  const blob=new Blob([lines.join('\n')],{type:'text/csv;charset=utf-8'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`${sym()}_strategy_consensus_v25.csv`;a.click();setTimeout(()=>URL.revokeObjectURL(url),500);
+}
+function splitCsvLine(line){const out=[];let cur='',q=false;for(let i=0;i<line.length;i++){const c=line[i];if(c==='"'){if(q&&line[i+1]==='"'){cur+='"';i++;}else q=!q;}else if(c===','&&!q){out.push(cur);cur='';}else cur+=c;}out.push(cur);return out;}
+function parseBool(v){const s=String(v).trim().toLowerCase();return s==='true'||s==='1'||s==='won'||s==='win';}
+async function importHistory(file){
+  if(!file)return;
+  const text=await file.text();const lines=text.split(/\r?\n/).filter(Boolean);if(lines.length<2)throw new Error('CSV is empty.');
+  const headers=splitCsvLine(lines[0]).map(x=>x.trim());const di=headers.indexOf('direction'),wi=headers.indexOf('won'),mi=headers.indexOf('market');
+  if(di<0||wi<0)throw new Error('CSV must contain direction and won columns.');
+  const imported={};
+  for(let i=1;i<lines.length;i++){
+    const a=splitCsvLine(lines[i]);const direction=String(a[di]||'').trim().toUpperCase();if(direction!=='UP'&&direction!=='DOWN')continue;
+    const won=parseBool(a[wi]);const market=mi>=0&&a[mi]?String(a[mi]).trim():sym();(imported[market]??=[]).push({direction,won,t:Date.now()+i});
+  }
+  for(const [market,arr] of Object.entries(imported)){
+    history[market]=(history[market]||[]).concat(arr).slice(-2000);try{localStorage.setItem(HISTORY_PREFIX+market,JSON.stringify(history[market]));}catch{}
+    log(`Imported ${arr.length} directional results into ${market}.`);
+  }
+  updateReadout();
+}
+function lockSettings(lock){['symbol','accountType','appId','demoAccountId','realAccountId','pat','realArm'].forEach(id=>$(id).disabled=lock);}
+function updateAccountModeUI(){
+  const type=$('accountType').value, real=type==='real';
+  if(real) $('realArm').checked=false;
+  $('realAccountId').disabled=false;
+  $('realArmWrap').style.display=real?'flex':'none';
+  $('accountStatus').innerHTML=real
+    ? '<strong>Account mode: REAL.</strong> Live-money trading is armed only when the checkbox is ticked.'
+    : '<strong>Account mode: DEMO.</strong> The bot will request a Demo-scoped authenticated WebSocket.';
+}
+$('accountType').onchange=updateAccountModeUI;
+updateAccountModeUI();
+$('start').onclick=async()=>{
+  if(running)return;
+  try{validateSettings();}catch(e){log(`SETTINGS ERROR: ${e.message}`);return;}
+  stopAfter=false;cooldown=0;cooldownConsumedTick=0;tickSeq=0;lastEvaluatedTick=0;lastScheduledTick=0;prices=[];records=[];
+  trades=0;wins=0;losses=0;lossStreak=0;sameDirWinStreak=0;sameDirWinDirection='';sessionPnl=0;peak=0;maxDD=0;cooldownSignalsRecorded=0;paperWins=0;paperLosses=0;paperTrades=[];researchTrackers=[];researchSampleCount=0;lastResearchStartTick=-999999;researchCountersData={selected:{n:0,w:0},technical:{n:0,w:0},opposite:{n:0,w:0},accelConfirmed:{n:0,w:0},accelReversal:{n:0,w:0},contrarian:{n:0,w:0},random:{n:0,w:0},consensus:{n:0,w:0},consensusFiltered:{n:0,w:0}};active=null;
+  const accountType=$('accountType').value,accountId=(accountType==='real'?$('realAccountId').value:$('demoAccountId').value).trim();
+  $('rows').innerHTML='';updateMetrics();$('readout').textContent='Connecting…';$('status').textContent='CONNECTING';log(`Settings: account=${accountType.toUpperCase()} | accountId=${accountId} | strategy=${$('strategyMode').value} | core=${$('coreMode').value} | distance=${num('distanceThreshold').toFixed(2)}σ | SMA persistence=${Math.floor(num('smaPersistence'))} | consensusOpposing=${$('consensusOpposing').value} | consensusAccel=${$('consensusAccel').value} | consensusMaxDistance=${$('consensusMaxDistance').value} | consensusLossGuard=${$('consensusLossGuard').value} | consensusPauseLosses=${Math.floor(num('consensusPauseLosses'))} | consensusCooldownSignals=${Math.floor(num('consensusCooldownSignals'))} | contDist=${num('continuationDistance').toFixed(2)}σ | contSlope=${num('continuationSlope').toFixed(2)}σ | contAccel=${num('continuationAccel').toFixed(2)}σ | exhDist=${num('exhaustionDistance').toFixed(2)}σ | exhAccel=${num('exhaustionAccel').toFixed(2)}σ | chopDist=${num('chopDistance').toFixed(2)}σ | researchSpacing=${Math.floor(num('researchSpacing'))} | lossMM=${$('lossMM').value} | protection=${$('protect').value}`);
+  $('start').disabled=true;$('stop').disabled=false;$('csv').disabled=true;lockSettings(true);running=true;loadHistory();
+  try{
+    // Connect market data first so the clean history/live stream is established before trading can start.
+    // Then connect the authenticated account-scoped trading socket. This avoids startup races between the two channels.
+    await connectMarket();
+    await connectTrade();
+    await loadCleanMarketData();
+    $('status').textContent='RUNNING';updateReadout();log(`Loaded ${loadHistory().length} stored directional history records for ${sym()}.`);
+  }catch(e){running=false;$('start').disabled=false;$('stop').disabled=true;$('csv').disabled=records.length===0;lockSettings(false);$('status').textContent='FAILED';$('readout').textContent='Startup failed — see log for the exact error.';setDataDebug();log(`FAILED: ${e.message}`);await disconnectAll();setDataDebug();}
+};
+$('stop').onclick=()=>{
+  stopAfter=true;$('stop').disabled=true;log('STOP requested: current trade will finish; no new trade will start.');
+  if(!active)finishRun('STOPPED');
+};
+$('csv').onclick=downloadCsv;
+$('clearHistory').onclick=clearHistory;
+$('historyFile').onchange=async e=>{try{await importHistory(e.target.files?.[0]);}catch(err){log(`IMPORT ERROR: ${err.message}`);}e.target.value='';};
+$('symbol').onchange=()=>{if(!running){prices=[];updateReadout();log(`Selected market ${sym()}. Stored history: ${loadHistory().length} records.`);}};
+$('persistHistory').onchange=()=>{if($('persistHistory').value==='off')log('History persistence OFF: new history is session-only.');else log(`History persistence ON: ${loadHistory().length} records currently stored for ${sym()}.`);updateReadout();};
+['strategyMode','distanceThreshold','smaPersistence','consensusOpposing','consensusAccel','consensusMaxDistance','consensusLossGuard','consensusPauseLosses','consensusCooldownSignals','continuationDistance','continuationSlope','continuationAccel','exhaustionDistance','exhaustionAccel','chopDistance','chopSlope','researchSpacing','researchTarget','researchFilter','coreMode','tradeMode','wrWarmup','wrGap','lookback','minObs','persistStreak','persistMin','persistLift','winFactor','winCap','winBoost','lossMM','lossFactor','lossMaxLevel','lossCap','protect','after3Mom5','pauseLosses','cooldownSignals','hardStopLosses','recordCooldown','paperDuration','lossLimit','baseStake','sessionTarget'].forEach(id=>$(id).addEventListener('input',updateReadout));
+['strategyMode','distanceThreshold','smaPersistence','consensusOpposing','consensusAccel','consensusMaxDistance','consensusLossGuard','coreMode','tradeMode','wrWarmup','winBoost','lossMM','protect','after3Mom5','recordCooldown'].forEach(id=>$(id).addEventListener('change',updateReadout));
+updateMetrics();updateReadout();setDataDebug();
+})();
+</script>
+</body>
+</html>
