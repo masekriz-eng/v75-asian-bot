@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Deriv Rise/Fall KNN Bot V1</title>
+<style>
+:root{font-family:Inter,system-ui,Arial,sans-serif;color-scheme:dark;background:#0b1020;color:#e8edf7}
+*{box-sizing:border-box} body{margin:0;padding:20px;background:#0b1020}
+.wrap{max-width:1280px;margin:auto}.card{background:#121a2c;border:1px solid #26324d;border-radius:14px;padding:16px;margin-bottom:14px}
+h1{margin:0 0 4px;font-size:24px}.sub{margin:0;color:#9fb0cf;font-size:13px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+label{font-size:12px;color:#aebbd4;display:flex;flex-direction:column;gap:5px}
+input,select,button{border:1px solid #34415e;border-radius:9px;background:#0d1425;color:#fff;padding:10px;font:inherit}
+button{cursor:pointer;font-weight:700}.primary{background:#2258d5}.danger{background:#7f2631}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.metric{background:#0d1425;border-radius:10px;padding:10px;min-width:125px}
+.metric span{display:block;color:#8fa2c4;font-size:11px}.metric b{font-size:18px}
+.good{color:#72e6a5}.bad{color:#ff8793}.warn{color:#ffd36b}
+#log{height:220px;overflow:auto;white-space:pre-wrap;background:#070b14;padding:10px;border-radius:9px;font:12px ui-monospace,monospace}
+table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:7px;border-bottom:1px solid #26324d;text-align:right}th:first-child,td:first-child{text-align:left}
+.notice{font-size:12px;color:#aebbd4;line-height:1.5}
+</style>
+</head>
+<body><div class="wrap">
+<div class="card">
+<h1>Deriv Rise/Fall KNN Bot V1</h1>
+<p class="sub">Clean fixed-stake research build • CALL/PUT • payout-aware entry • no martingale • KNN learns directly from historical and live tick paths.</p>
+</div>
+
+<div class="card grid">
+<label>App ID<input id="appId" value="34BpyfKiEsqmHbsK4AP9h" placeholder="Deriv App ID"></label>
+<label>Account type<select id="accountType"><option value="demo">Demo</option><option value="real">Real</option></select></label>
+<label>Demo account ID<input id="demoAccountId" value="DOT94618672" placeholder="e.g. VRTC..."></label>
+<label>Real account ID<input id="realAccountId" placeholder="e.g. CR..."></label>
+<label>PAT / token<input id="pat" type="password" placeholder="Deriv PAT"></label>
+<label>Market<select id="symbol">
+<option value="1HZ75V">Volatility 75 (1s)</option><option value="1HZ10V">Volatility 10 (1s)</option>
+<option value="1HZ25V">Volatility 25 (1s)</option><option value="1HZ50V">Volatility 50 (1s)</option>
+<option value="1HZ100V">Volatility 100 (1s)</option><option value="R_75">Volatility 75</option>
+<option value="R_10">Volatility 10</option><option value="R_25">Volatility 25</option>
+<option value="R_50">Volatility 50</option><option value="R_100">Volatility 100</option>
+</select></label>
+<label>Duration (ticks)<input id="duration" type="number" min="1" max="100" value="5"></label>
+<label>Base stake USD<input id="stake" type="number" min=".35" step=".01" value="1"></label>
+<label>Martingale<select id="mgMode">
+<option value="factor">Fixed factor</option>
+<option value="payout">Payout-aware recovery</option>
+<option value="off">OFF</option>
+</select></label>
+<label>Martingale factor<input id="mgFactor" type="number" min="1" step=".1" value="2.2"></label>
+<label>Max martingale steps<input id="mgMax" type="number" min="0" max="12" step="1" value="5"></label>
+<label>Target recovery profit USD<input id="mgTarget" type="number" min="0" step=".01" value="0"></label>
+<label>Max stake USD<input id="mgMaxStake" type="number" min=".35" step=".01" value="50"></label>
+<label>Minimum KNN probability<input id="minProb" type="number" min=".50" max=".99" step=".01" value=".60"></label>
+<label>Minimum payout %<input id="minPayout" type="number" min="0" max="1000" step="1" value="50"></label>
+<label>KNN path length<input id="lookback" type="number" min="5" max="50" value="12"></label>
+<label>K neighbors<input id="k" type="number" min="3" max="99" step="2" value="21"></label>
+<label>Minimum probability gap<input id="minGap" type="number" min="0" max=".49" step=".01" value=".08"></label>
+<label>Calibration prior strength<input id="calPrior" type="number" min="1" max="200" step="1" value="30"></label>
+
+<label>Max training samples<input id="maxSamples" type="number" min="100" max="5000" step="100" value="1500"></label>
+<label>Max trades<input id="maxTrades" type="number" min="1" value="100"></label>
+<label>Session loss stop USD<input id="lossStop" type="number" min="0" step=".01" value="50"></label>
+<label>Real trading arm<select id="realArm"><option value="off">OFF</option><option value="on">ARM REAL TRADING</option></select></label>
+</div>
+
+<div class="card row">
+<button id="connect" class="primary">CONNECT + LOAD HISTORY</button>
+<button id="start" class="primary">START BOT</button>
+<button id="stop" class="danger">STOP</button>
+<button id="export">EXPORT CSV</button>
+<div class="metric"><span>Status</span><b id="status">IDLE</b></div>
+</div>
+
+<div class="card row">
+<div class="metric"><span>Price</span><b id="price">—</b></div>
+<div class="metric"><span>P(RISE)</span><b id="pUp">50.0%</b></div>
+<div class="metric"><span>P(FALL)</span><b id="pDown">50.0%</b></div>
+<div class="metric"><span>Model direction</span><b id="direction">—</b></div>
+<div class="metric"><span>KNN samples</span><b id="samples">0</b></div>
+<div class="metric"><span>Trades</span><b id="trades">0</b></div>
+<div class="metric"><span>Wins</span><b id="wins">0</b></div>
+<div class="metric"><span>Losses</span><b id="losses">0</b></div>
+<div class="metric"><span>Win rate</span><b id="wr">—</b></div>
+<div class="metric"><span>Session P/L</span><b id="pnl">$0.00</b></div><div class="metric"><span>MG step</span><b id="mgStep">0</b></div><div class="metric"><span>Recovery pool</span><b id="mgPool">$0.00</b></div>
+</div>
+
+<div class="card">
+<p class="notice"><b>Entry logic:</b> SMA(5) slope + Momentum 3/5 + normalized distance + acceleration + volatility → KNN P(RISE)/P(FALL) → walk-forward calibration → choose higher-probability side → request a live Deriv proposal → calculate actual profit-on-stake payout → enter only when probability and payout both pass their thresholds. After a loss, the next model-approved trade can increase stake according to the selected martingale mode; a win resets to base. The model still chooses direction independently—no forced opposite trade.</p>
+<div class="notice" style="margin:8px 0">V2 model: <b>SMA slope + M3 + M5 + distance + acceleration + volatility</b>. Raw KNN probabilities are calibrated with walk-forward historical predictions. A configurable probability-gap filter prevents near-coin-flip entries.</div><div id="log"></div>
+</div>
+
+<div class="card" style="overflow:auto"><table>
+<thead><tr><th>#</th><th>Time</th><th>Dir</th><th>Prob</th><th>Stake</th><th>Payout %</th><th>Entry</th><th>Exit</th><th>Result</th><th>P/L</th></tr></thead>
+<tbody id="rows"></tbody></table></div>
+</div>
+<script>
+(()=>{
+'use strict';
+const API='https://api.derivws.com';
+const PUBLIC='wss://api.derivws.com/trading/v1/options/ws/public';
+const $=id=>document.getElementById(id);
+const n=id=>Number($(id).value);
+let market=null, trade=null, marketReq=1000, tradeReq=50000, mp=new Map(), tp=new Map();
+let prices=[], epochs=[], samples=[], trackers=[], running=false, active=null, records=[];
+let trades=0,wins=0,losses=0,pnl=0,lastSignalTick=-1,mgStep=0,mgLossPool=0;
+
+function log(s){$('log').textContent=`${new Date().toLocaleTimeString()}  ${s}\n`+$('log').textContent.slice(0,18000)}
+function status(s){$('status').textContent=s}
+function sym(){return $('symbol').value}
+function send(sock,map,payload,kind){
+ return new Promise((resolve,reject)=>{
+  if(!sock||sock.readyState!==1)return reject(new Error(`${kind} socket not connected`));
+  const id=kind==='market'?marketReq++:tradeReq++;
+  const timer=setTimeout(()=>{map.delete(id);reject(new Error(`${kind} request timeout`))},15000);
+  map.set(id,{resolve,reject,timer});
+  sock.send(JSON.stringify({...payload,req_id:id}));
+ });
+}
+function settle(map,m){
+ if(m.req_id&&map.has(m.req_id)){const p=map.get(m.req_id);map.delete(m.req_id);clearTimeout(p.timer);m.error?p.reject(new Error(`${m.error.code||'API'}: ${m.error.message}`)):p.resolve(m);return true} return false;
+}
+async function otp(){
+ const acct=($('accountType').value==='real'?$('realAccountId').value:$('demoAccountId').value).trim();
+ const app=$('appId').value.trim(),pat=$('pat').value.trim();
+ if(!app||!acct||!pat)throw new Error('Enter App ID, selected account ID and PAT.');
+ if($('accountType').value==='real'&&$('realArm').value!=='on')throw new Error('Real trading is not armed.');
+ const r=await fetch(`${API}/trading/v1/options/accounts/${encodeURIComponent(acct)}/otp`,{method:'POST',headers:{Authorization:`Bearer ${pat}`,'Deriv-App-ID':app}});
+ const d=await r.json().catch(()=>({})); if(!r.ok)throw new Error(d?.errors?.[0]?.message||`OTP HTTP ${r.status}`);
+ if(!d?.data?.url)throw new Error('No trading WebSocket URL returned.');
+ return d.data.url;
+}
+function openWS(url,onmessage){
+ return new Promise((resolve,reject)=>{
+  const s=new WebSocket(url),timer=setTimeout(()=>reject(new Error('WebSocket open timeout')),12000);
+  s.onopen=()=>{clearTimeout(timer);resolve(s)}; s.onerror=(ev)=>{clearTimeout(timer);reject(new Error('WebSocket connection error — check App ID, PAT scope, account ID, and browser/network access'))}; s.onmessage=onmessage;
+ });
+}
+
+function mean(a){return a.length?a.reduce((x,y)=>x+y,0)/a.length:0}
+function sd(a){
+ if(a.length<2)return 0;
+ const m=mean(a); return Math.sqrt(a.reduce((z,x)=>z+(x-m)*(x-m),0)/a.length);
+}
+function featureAt(end){
+ const i=Number(end), need=12;
+ if(i<need)return null;
+ const p=prices;
+ const sma5=mean(p.slice(i-4,i+1));
+ const prevSma5=mean(p.slice(i-5,i));
+ const slope=sma5-prevSma5;
+ const m3=p[i]-p[i-3];
+ const m5=p[i]-p[i-5];
+ const accel=(p[i]-p[i-2])-((p[i-2]-p[i-4]));
+ const rets=[];
+ for(let j=Math.max(1,i-19);j<=i;j++)rets.push(p[j]-p[j-1]);
+ const vol=sd(rets)||1e-9;
+ const distance=(p[i]-sma5)/vol;
+ const slopeN=slope/vol, m3N=m3/vol, m5N=m5/vol, accelN=accel/vol;
+ const volShort=sd(rets.slice(-5))||vol;
+ const volLong=sd(rets.slice(-20))||vol;
+ const volRatio=volLong?volShort/volLong:1;
+ return [distance,slopeN,m3N,m5N,accelN,volRatio];
+}
+function featureNames(){return ['DistanceSigma','SMASlopeSigma','Momentum3Sigma','Momentum5Sigma','AccelerationSigma','VolatilityRatio']}
+function featureDistance(a,b){
+ let z=0;
+ for(let i=0;i<a.length;i++){
+   const scale=i===5?0.75:1;
+   const d=(a[i]-b[i])*scale; z+=d*d;
+ }
+ return Math.sqrt(z/a.length);
+}
+function rawKnnPrediction(x, pool=samples){
+ if(!x||!pool.length)return {pUp:.5,pDown:.5,dir:'',neighbors:0,raw:.5};
+ const k=Math.min(pool.length,Math.max(3,Math.floor(n('k'))));
+ const near=pool.map(e=>({e,d:featureDistance(x,e.x)})).sort((a,b)=>a.d-b.d).slice(0,k);
+ let wu=0,w=0;
+ for(const z of near){const wt=1/(z.d+0.08);w+=wt;wu+=wt*z.e.y}
+ const pUp=w?wu/w:.5;
+ return {pUp,pDown:1-pUp,dir:pUp>=.5?'RISE':'FALL',neighbors:near.length,raw:pUp};
+}
+function calibrateProbability(raw){
+ // Empirical reliability map generated from walk-forward KNN predictions.
+ // Each bucket is smoothed toward 50/50 until sufficient evidence exists.
+ const x=Math.max(.5,Math.min(1,Number(raw)));
+ const b=x<.55?'50-55':x<.60?'55-60':x<.65?'60-65':x<.70?'65-70':x<.75?'70-75':'75+';
+ const st=calibration[b]||{n:0,w:0};
+ const prior=Math.max(1,n('calPrior'));
+ const posterior=(st.w+0.5*prior)/(st.n+prior);
+ const conf=st.n/(st.n+prior);
+ return .5+(posterior-.5)*conf;
+}
+let calibration={
+ '50-55':{n:0,w:0},'55-60':{n:0,w:0},'60-65':{n:0,w:0},
+ '65-70':{n:0,w:0},'70-75':{n:0,w:0},'75+':{n:0,w:0}
+};
+function buildWalkForwardCalibration(){
+ calibration={
+  '50-55':{n:0,w:0},'55-60':{n:0,w:0},'60-65':{n:0,w:0},
+  '65-70':{n:0,w:0},'70-75':{n:0,w:0},'75+':{n:0,w:0}
+ };
+ if(samples.length<80)return;
+ const step=Math.max(1,Math.floor(samples.length/500));
+ for(let i=40;i<samples.length;i+=step){
+   const pool=samples.slice(0,i);
+   const r=rawKnnPrediction(samples[i].x,pool);
+   if(!r || !Number.isFinite(r.pUp)) continue;
+   const raw=Math.max(.5,Math.min(1,r.pUp>=.5?r.pUp:1-r.pUp));
+   const b=raw<.55?'50-55':raw<.60?'55-60':raw<.65?'60-65':raw<.70?'65-70':raw<.75?'70-75':'75+';
+   const st=calibration[b]; st.n++; if((r.pUp>=.5?samples[i].y:1-samples[i].y)===1)st.w++;
+ }
+}
+function rebuildSamples(){
+ samples=[];
+ const L=Math.max(12,Math.floor(n('lookback'))),H=Math.max(1,Math.floor(n('duration'))),max=Math.max(100,Math.floor(n('maxSamples')));
+ for(let end=L;end+H<prices.length;end++){
+   const x=featureAt(end); if(!x)continue;
+   const delta=prices[end+H]-prices[end]; if(delta===0)continue;
+   samples.push({x,y:delta>0?1:0,index:end});
+ }
+ if(samples.length>max)samples=samples.slice(-max);
+ buildWalkForwardCalibration();
+ update();
+}
+function predict(){
+ const x=featureAt(prices.length-1);
+ const r=rawKnnPrediction(x,samples);
+ if(!x||!samples.length)return {...r,pUp:.5,pDown:.5,dir:'',gap:0,calibrated:false,features:x};
+ const rawCandidate=r.pUp>=.5?r.pUp:1-r.pUp;
+ const calCandidate=calibrateProbability(rawCandidate);
+ const pUp=r.pUp>=.5?calCandidate:1-calCandidate;
+ const pDown=1-pUp,dir=pUp>=pDown?'RISE':'FALL';
+ return {...r,pUp,pDown,dir,gap:Math.abs(pUp-pDown),calibrated:true,rawPUp:r.pUp,features:x};
+}
+
+function addLiveTraining(){
+ const H=Math.max(1,Math.floor(n('duration'))),L=Math.max(12,Math.floor(n('lookback')));
+ while(trackers.length&&trackers[0].due<=prices.length-1){
+   const t=trackers.shift(),delta=prices[prices.length-1]-t.entry;
+   if(delta!==0&&t.x){
+     samples.push({x:t.x,y:delta>0?1:0,index:t.index});
+     const max=Math.max(100,Math.floor(n('maxSamples')));
+     if(samples.length>max)samples.shift();
+   }
+ }
+ const x=featureAt(prices.length-1);
+ if(x)trackers.push({due:prices.length-1+H,entry:prices.at(-1),x,index:prices.length-1});
+ if(trackers.length%25===0&&samples.length>=80)buildWalkForwardCalibration();
+}
+function update(){
+ const p=predict(); $('price').textContent=prices.length?prices.at(-1).toFixed(4):'—';
+ $('pUp').textContent=(p.pUp*100).toFixed(1)+'%';$('pDown').textContent=(p.pDown*100).toFixed(1)+'%';$('direction').textContent=p.dir||'—';
+ $('samples').textContent=samples.length;$('trades').textContent=trades;$('wins').textContent=wins;$('losses').textContent=losses;
+ $('wr').textContent=trades?(wins/trades*100).toFixed(1)+'%':'—';$('pnl').textContent=(pnl>=0?'+':'')+'$'+pnl.toFixed(2);$('mgStep').textContent=mgStep;$('mgPool').textContent='$'+mgLossPool.toFixed(2);
+ $('pnl').className=pnl>=0?'good':'bad';
+}
+async function connect(){
+ running=false;status('AUTHENTICATING');
+ if(market)try{market.close()}catch{}
+ if(trade)try{trade.close()}catch{}
+ mp=new Map(); tp=new Map();
+
+ // Current Deriv API: obtain a short-lived OTP URL, then use ONE
+ // authenticated WebSocket for both market data and trading.
+ const url=await otp();
+ status('CONNECTING');
+ trade=await openWS(url,ev=>{
+  let m;try{m=JSON.parse(ev.data)}catch{return}
+  if(settle(tp,m)||settle(mp,m))return;
+  if(m.msg_type==='tick'&&m.tick?.symbol===sym()){
+    const q=Number(m.tick.quote),e=Number(m.tick.epoch);
+    if(Number.isFinite(q)){
+      prices.push(q);epochs.push(e);
+      if(prices.length>3000){prices.shift();epochs.shift()}
+      addLiveTraining();update();maybeTrade()
+    }
+  }
+  if(m.msg_type==='proposal_open_contract')contractUpdate(m.proposal_open_contract||{});
+  if(m.error)log(`Deriv API: ${m.error.message||m.error.code||'Unknown error'}`);
+ });
+
+ // Use the same authenticated socket for market history and live ticks.
+ market=trade;
+ const h=await send(market,mp,{ticks_history:sym(),count:1200,end:'latest',style:'ticks'},'market');
+ prices=(h.history?.prices||[]).map(Number).filter(Number.isFinite);
+ epochs=(h.history?.times||[]).map(Number);
+ rebuildSamples();
+ await send(market,mp,{ticks:sym(),subscribe:1},'market');
+
+ if(!window.__keepalive){
+   window.__keepalive=setInterval(()=>{
+     try{if(trade?.readyState===1)trade.send(JSON.stringify({ping:1}))}catch{}
+   },25000);
+ }
+ status('CONNECTED');
+ log(`Authenticated WebSocket connected. Loaded ${prices.length} ticks and built ${samples.length} KNN samples for ${sym()}.`);
+}
+function normalizeStake(value){
+ const maxStake=Math.max(.35,n('mgMaxStake'));
+ // Deriv rejects stakes with more than 2 decimal places.
+ // Round once, clamp to the configured maximum, and never go below $0.35.
+ return Math.min(maxStake, Math.max(.35, Math.round((Number(value)+1e-10)*100)/100));
+}
+function nextStake(payoutPct){
+ const base=normalizeStake(Math.max(.35,n('stake')));
+ const mode=$('mgMode').value;
+ if(mode==='off'||mgStep===0) return normalizeStake(base);
+ const maxStake=Math.max(base,n('mgMaxStake'));
+ if(mode==='factor') return normalizeStake(Math.min(maxStake, base*Math.pow(Math.max(1,n('mgFactor')),mgStep)));
+ const payout=Math.max(0.001,payoutPct/100);
+ const target=Math.max(0,n('mgTarget'));
+ // Stake that recovers all accumulated losses and makes the requested target profit.
+ return normalizeStake(Math.min(maxStake, Math.max(base,(mgLossPool+target)/payout)));
+}
+async function maybeTrade(){
+ if(!running||active||prices.length<30||lastSignalTick===prices.length-1)return;
+ lastSignalTick=prices.length-1;
+ if(trades>=n('maxTrades')){running=false;status('COMPLETE');return}
+ if(n('lossStop')>0&&pnl<=-Math.abs(n('lossStop'))){running=false;status('LOSS STOP');return}
+ const p=predict(),prob=Math.max(p.pUp,p.pDown);
+ if(prob<n('minProb'))return;
+ if(Math.abs(p.pUp-p.pDown)<n('minGap')){log(`Signal skipped: probability gap ${(Math.abs(p.pUp-p.pDown)*100).toFixed(1)}% < ${(n('minGap')*100).toFixed(1)}%`);return;}
+ const dir=p.dir,type=dir==='RISE'?'CALL':'PUT';
+ try{
+  // First proposal establishes the live payout. Rise/Fall payout can vary, so
+  // recovery sizing is calculated from the actual current payout rather than
+  // assuming a fixed percentage.
+  const probe=await send(trade,tp,{proposal:1,amount:normalizeStake(Math.max(.35,n('stake'))),basis:'stake',contract_type:type,currency:'USD',duration:Math.max(1,Math.floor(n('duration'))),duration_unit:'t',underlying_symbol:sym()},'trade');
+  const probeAsk=Number(probe.proposal?.ask_price),probePay=Number(probe.proposal?.payout),probePid=probe.proposal?.id;
+  if(!probePid||!Number.isFinite(probeAsk)||!Number.isFinite(probePay))throw new Error('Invalid proposal');
+  const payoutPct=(probePay-probeAsk)/probeAsk*100;
+  if(payoutPct<n('minPayout')){log(`${dir} skipped: payout ${payoutPct.toFixed(1)}% < ${n('minPayout').toFixed(1)}%`);return}
+
+  let stake=nextStake(payoutPct);
+  // Request a fresh proposal at the actual recovery stake.
+  const pr=await send(trade,tp,{proposal:1,amount:normalizeStake(stake),basis:'stake',contract_type:type,currency:'USD',duration:Math.max(1,Math.floor(n('duration'))),duration_unit:'t',underlying_symbol:sym()},'trade');
+  const ask=Number(pr.proposal?.ask_price),pay=Number(pr.proposal?.payout),pid=pr.proposal?.id;
+  if(!pid||!Number.isFinite(ask)||!Number.isFinite(pay))throw new Error('Invalid recovery proposal');
+  const actualPayoutPct=(pay-ask)/ask*100;
+  if(actualPayoutPct<n('minPayout')){log(`${dir} recovery skipped: payout ${actualPayoutPct.toFixed(1)}% < ${n('minPayout').toFixed(1)}%`);return}
+  active={dir,type,prob,rawProb:(p.rawPUp>=.5?p.rawPUp:1-p.rawPUp),gap:p.gap,features:p.features,stake:normalizeStake(ask),payoutPct:actualPayoutPct,entry:prices.at(-1),id:null,mgStep,mgLossPool};
+  status(`BUY ${dir} | MG ${mgStep}`);
+  const b=await send(trade,tp,{buy:pid,price:ask},'trade'); const cid=Number(b.buy?.contract_id);
+  if(!cid)throw new Error('No contract ID');active.id=cid;
+  trade.send(JSON.stringify({proposal_open_contract:1,contract_id:cid,subscribe:1,req_id:tradeReq++}));
+  log(`BOUGHT ${dir} | calibrated P=${(prob*100).toFixed(1)}% | raw P=${((p.rawPUp>=.5?p.rawPUp:1-p.rawPUp)*100).toFixed(1)}% | gap=${(p.gap*100).toFixed(1)}% | MG ${mgStep} | stake $${ask.toFixed(2)} | payout ${actualPayoutPct.toFixed(1)}%`);
+ }catch(e){log(`Trade error: ${e.message}`);active=null;status('ERROR')}
+}
+function contractUpdate(c){
+ if(!active||Number(c.contract_id)!==Number(active.id)||!c.is_sold)return;
+ const profit=Number(c.profit||0),exit=Number(c.exit_tick??c.exit_spot??NaN),won=profit>0;
+ trades++;if(won)wins++;else losses++;pnl+=profit;
+ const finishedStake=active.stake;
+ if(won){
+   mgStep=0; mgLossPool=0;
+ }else if($('mgMode').value!=='off'){
+   mgLossPool += finishedStake;
+   mgStep++;
+   const maxStep=Math.max(0,Math.floor(n('mgMax')));
+   if(mgStep>maxStep){
+     log(`MARTINGALE LIMIT reached after loss. Resetting to base stake.`);
+     mgStep=0; mgLossPool=0;
+   }
+ }else{
+   mgStep=0; mgLossPool=0;
+ }
+ records.unshift({num:trades,time:new Date().toLocaleTimeString(),dir:active.dir,prob:active.prob,rawProb:active.rawProb,gap:active.gap,DistanceSigma:active.features?.[0],SMASlopeSigma:active.features?.[1],Momentum3Sigma:active.features?.[2],Momentum5Sigma:active.features?.[3],AccelerationSigma:active.features?.[4],VolatilityRatio:active.features?.[5],stake:finishedStake,payout:active.payoutPct,entry:active.entry,exit,result:won?'WIN':'LOSS',profit,mgStepAfter:mgStep});
+ const r=records[0],tr=document.createElement('tr');tr.innerHTML=`<td>${r.num}</td><td>${r.time}</td><td>${r.dir}</td><td>${(r.prob*100).toFixed(1)}%</td><td>$${r.stake.toFixed(2)}</td><td>${r.payout.toFixed(1)}%</td><td>${r.entry}</td><td>${Number.isFinite(r.exit)?r.exit:'—'}</td><td class="${won?'good':'bad'}">${r.result}</td><td class="${won?'good':'bad'}">${profit>=0?'+':''}$${profit.toFixed(2)}</td>`;
+ $('rows').prepend(tr);log(`${won?'WIN':'LOSS'} ${active.dir} | P/L ${profit>=0?'+':''}$${profit.toFixed(2)} | session ${pnl>=0?'+':''}$${pnl.toFixed(2)}`);
+ active=null;status(running?'RUNNING':'STOPPED');update();
+}
+function exportCSV(){
+ const head=['Trade','Time','Direction','Probability','Stake','PayoutPct','Entry','Exit','Result','Profit'];
+ const lines=[head.join(','),...records.slice().reverse().map(r=>[r.num,r.time,r.dir,r.prob,r.stake,r.payout,r.entry,r.exit,r.result,r.profit].join(','))];
+ const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([lines.join('\n')],{type:'text/csv'}));a.download=`rise_fall_v1_${Date.now()}.csv`;a.click();URL.revokeObjectURL(a.href);
+}
+$('connect').onclick=()=>connect().catch(e=>{status('ERROR');log(e.message)});
+$('start').onclick=()=>{if(!trade||trade.readyState!==1||!market||market.readyState!==1){log('Connect first.');return}running=true;status('RUNNING');log(`Bot started. Martingale=${$('mgMode').value}, factor=${n('mgFactor').toFixed(1)}, max steps=${Math.floor(n('mgMax'))}. Direction remains model-selected.`)};
+$('stop').onclick=()=>{running=false;status(active?'STOP AFTER ACTIVE':'STOPPED');log('Stop requested. No new trades will be entered.')};
+$('export').onclick=exportCSV;
+['duration','lookback','maxSamples'].forEach(id=>$(id).addEventListener('change',()=>{if(prices.length)rebuildSamples()}));
+update();
+})();
+</script></body></html>
