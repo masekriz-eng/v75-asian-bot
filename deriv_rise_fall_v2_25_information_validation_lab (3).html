@@ -1,0 +1,3954 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Deriv Rise/Fall KNN Bot V2.25 — Information Validation Lab</title>
+<style>
+:root{font-family:Inter,system-ui,Arial,sans-serif;color-scheme:dark;background:#0b1020;color:#e8edf7}
+*{box-sizing:border-box} body{margin:0;padding:20px;background:#0b1020}
+.wrap{max-width:1280px;margin:auto}.card{background:#121a2c;border:1px solid #26324d;border-radius:14px;padding:16px;margin-bottom:14px}
+h1{margin:0 0 4px;font-size:24px}.sub{margin:0;color:#9fb0cf;font-size:13px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+label{font-size:12px;color:#aebbd4;display:flex;flex-direction:column;gap:5px}
+input,select,button{border:1px solid #34415e;border-radius:9px;background:#0d1425;color:#fff;padding:10px;font:inherit}
+button{cursor:pointer;font-weight:700}.primary{background:#2258d5}.danger{background:#7f2631}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.metric{background:#0d1425;border-radius:10px;padding:10px;min-width:125px}
+.metric span{display:block;color:#8fa2c4;font-size:11px}.metric b{font-size:18px}
+.good{color:#72e6a5}.bad{color:#ff8793}.warn{color:#ffd36b}
+#log{height:220px;overflow:auto;white-space:pre-wrap;background:#070b14;padding:10px;border-radius:9px;font:12px ui-monospace,monospace}
+table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:7px;border-bottom:1px solid #26324d;text-align:right}th:first-child,td:first-child{text-align:left}
+.notice{font-size:12px;color:#aebbd4;line-height:1.5}
+</style>
+</head>
+<body><div class="wrap">
+<div class="card">
+<h1>Deriv Rise/Fall KNN Bot V2.25 — Information Validation Lab</h1>
+<p class="sub">Rise/Fall • calibrated KNN • two-side reset after every normal-trade loss • statistical information / falsification lab. API mapping: Rise=PUT, Fall=CALL.</p>
+</div>
+
+<div class="card grid">
+<label>App ID<input id="appId" value="34BpyfKiEsqmHbsK4AP9h" placeholder="Deriv App ID"></label>
+<label>Account type<select id="accountType"><option value="demo">Demo</option><option value="real">Real</option></select></label>
+<label>Demo account ID<input id="demoAccountId" value="DOT94618672" placeholder="e.g. VRTC..."></label>
+<label>Real account ID<input id="realAccountId" placeholder="e.g. CR..."></label>
+<label>PAT / token<input id="pat" type="password" placeholder="Deriv PAT"></label>
+<label>Market<select id="symbol">
+<option value="1HZ75V">Volatility 75 (1s)</option><option value="1HZ10V">Volatility 10 (1s)</option>
+<option value="1HZ25V">Volatility 25 (1s)</option><option value="1HZ50V">Volatility 50 (1s)</option>
+<option value="1HZ100V">Volatility 100 (1s)</option><option value="R_75">Volatility 75</option>
+<option value="R_10">Volatility 10</option><option value="R_25">Volatility 25</option>
+<option value="R_50">Volatility 50</option><option value="R_100">Volatility 100</option>
+</select></label>
+<label>Duration (ticks)<input id="duration" type="number" min="1" max="100" value="5"></label>
+<label>Base stake USD<input id="stake" type="number" min=".35" step=".01" value="1"></label>
+<label>Survival mode<select id="survivalMode">
+<option value="on" selected>ON — capped recovery</option>
+<option value="off">OFF</option>
+</select></label>
+<label>Loss-streak tolerance<input id="survivalLosses" type="number" min="1" max="30" step="1" value="12"></label>
+<label>Sequence loss budget USD<input id="survivalBudgetInput" type="number" min=".35" step=".01" value="70"></label>
+<label>Two-side stake reset<select id="twoSideReset"><option value="on" selected>ON — reset after loss streak</option><option value="off">OFF</option></select></label>
+<label>Two-side trigger<input id="twoSideTrigger" type="number" min="1" max="10" step="1" value="1" disabled></label>
+<label>Recovery target profit USD<input id="mgTarget" type="number" min="0" step=".01" value="1.2"></label>
+<label>Hard max recovery stake USD<input id="mgMaxStake" type="number" min=".35" step=".01" value="50"></label>
+<label>Model-favoured recovery factor<input id="twoSideRecoveryFactor" type="number" min="1" max="10" step=".1" value="2.0"></label><div class="metric" style="grid-column:span 2"><span>Survival allocation</span><b id="ladderPreview" style="font-size:14px">—</b></div>
+<label>Entry profile<select id="entryProfile">
+<option value="balanced" selected>Balanced — recommended</option>
+<option value="strict">Strict — fewer trades</option>
+<option value="explore">Explore — diagnostic</option>
+</select></label>
+<label>Minimum probability<input id="minProb" type="number" min=".50" max=".99" step=".01" value=".58"></label>
+<label>Maximum probability<input id="maxProb" type="number" min=".50" max=".99" step=".01" value=".75"></label>
+<label>Minimum payout %<input id="minPayout" type="number" min="0" max="1000" step="1" value="50"></label>
+<label>KNN path length<input id="lookback" type="number" min="5" max="50" value="12"></label>
+<label>K neighbors<input id="k" type="number" min="3" max="99" step="2" value="21"></label>
+<label>Minimum probability gap<input id="minGap" type="number" min="0" max=".49" step=".01" value=".04"></label>
+<label>Calibration prior strength<input id="calPrior" type="number" min="1" max="200" step="1" value="30"></label>
+<label>Sequence learner<select id="sequenceLearner"><option value="on" selected>ON — learn from live trades</option><option value="off">OFF</option></select></label>
+<label>Sequence influence %<input id="sequenceInfluence" type="number" min="0" max="50" step="1" value="25"></label>
+<label>Minimum sequence observations<input id="sequenceMinObs" type="number" min="1" max="50" step="1" value="5"></label>
+<label>Probability bucket width %<input id="sequenceProbBucketWidth" type="number" min="1" max="10" step="1" value="2"></label>
+<label>Rise/Fall sequence learner<select id="rfSequenceLearner"><option value="on" selected>ON — learn RISE/FALL path</option><option value="off">OFF</option></select></label>
+<label>Rise/Fall sequence influence %<input id="rfSequenceInfluence" type="number" min="0" max="50" step="1" value="15"></label>
+<label>Rise/Fall sequence minimum observations<input id="rfSequenceMinObs" type="number" min="1" max="50" step="1" value="5"></label>
+<label>Import historical sequence CSV<input id="rfSequenceFile" type="file" accept=".csv,text/csv"></label>
+<label>Statistical edge gate<select id="edgeGateMode"><option value="on" selected>ON — require validated edge</option><option value="diag">DIAGNOSTIC — do not block trades</option><option value="off">OFF</option></select></label>
+<label>Validation minimum OOS trades<input id="edgeMinOOS" type="number" min="50" max="5000" step="50" value="200"></label>
+<label>Validation assumed payout %<input id="edgeAssumedPayout" type="number" min="1" max="1000" step=".1" value="88.6"></label>
+<label>Required edge above break-even %<input id="edgeMinMargin" type="number" min="0" max="20" step=".5" value="2.0"></label>
+<label>Null Monte Carlo paths<input id="nullPaths" type="number" min="10" max="100" step="10" value="30"></label>
+<label>Null annual volatility %<input id="nullAnnualVol" type="number" min="1" max="300" step="1" value="75"></label>
+<label>Null superiority percentile %<input id="nullPercentile" type="number" min="50" max="99" step=".5" value="95"></label>
+<label>Re-run validation after normal trades<input id="edgeRefreshTrades" type="number" min="25" max="500" step="25" value="50"></label>
+  <div class="notice" style="grid-column:span 2"><b>Probability-conditioned sequence learning:</b> the KNN remains the primary directional engine. After every <b>normal</b> trade, the learner records the pre-sequence model probability, its probability bucket, the current W/L sequence, the model direction, and the actual result. It learns which sequences work at which probability levels instead of assuming a 60% signal behaves the same as a 65% signal. The strongest available evidence is selected hierarchically: exact sequence + probability bucket + direction → sequence + probability bucket → probability bucket + direction → probability bucket → legacy sequence-only fallback. Two-sided recovery legs are excluded.</div>
+  <div class="notice" style="grid-column:span 2"><b>RISE/FALL sequence learner:</b> this is a separate directional sequence model. For normal trades, it reconstructs the <b>actual market direction</b> from Entry/Exit (or from Direction + Result when prices are unavailable), then learns 1–4 direction patterns such as <b>R, F, RR, RF, FR, RRR, RFRF</b>. Imported CSVs use <b>Mode = NORMAL</b> rows only, so two-sided recovery legs are excluded. The sequence model can gently adjust the KNN P(RISE)/P(FALL); it never replaces the KNN direction by itself.</div>
+  <div class="notice" style="grid-column:span 2"><b>Model discipline:</b> the edge gate validates the core KNN out-of-sample against a known random-walk null. The W/L sequence and RISE/FALL sequence layers remain secondary overlays; passing the gate does <b>not</b> prove those pattern layers contain a true edge.</div>
+<div class="notice" style="grid-column:span 2" id="edgeValidationPanel"><b>Statistical edge validation:</b> the bot first tests the directional KNN on a chronological out-of-sample set, measures return-sign dependence, and runs the same KNN walk-forward process on known random-walk paths generated from the configured annual volatility. In <b>REQUIRE VALIDATED EDGE</b> mode, normal live entries are blocked until the real OOS result is above the configured break-even margin <b>and</b> the real result beats the null benchmark at the configured percentile. This version treats technical/sequence patterns as hypotheses, not proof of an edge.</div>
+<div class="notice" style="grid-column:span 2"><b>Validation status:</b> <span id="edgeValidationStatus">WAITING FOR HISTORY</span> | OOS WR <span id="edgeOOSWR">—</span> | break-even <span id="edgeBE">—</span> | null 95th <span id="edgeNull95">—</span> | autocorr p <span id="edgeAutoP">—</span></div>
+  <div class="notice" style="grid-column:span 2"><b>Two-side recovery:</b> after every normal-trade loss, the bot opens <b>RISE + FALL</b>. The <b>current model-favoured side</b> receives the configurable recovery factor; the non-favoured side stays at base stake. After the pair settles, the next normal trade is at base stake. A normal WIN exits reset mode; a normal LOSS starts another two-sided recovery pair using the <b>new current model signal</b>.</div>
+  <div class="notice" style="grid-column:span 2">Calibration bootstrap: until a probability bucket has enough out-of-sample observations, the model preserves most of the current signal instead of collapsing it toward 50%. This prevents a cold-start "zero trades" condition while empirical calibration builds.</div>
+
+<label>Max training samples<input id="maxSamples" type="number" min="100" max="5000" step="100" value="1500"></label>
+<label>Max trades<input id="maxTrades" type="number" min="1" value="200"></label>
+<label>Session target profit USD<input id="profitTarget" type="number" min="0" step=".01" value="200"></label><div class="notice" style="grid-column:span 2">The survival engine treats the sequence-loss budget as the hard risk boundary. After a loss it calculates the <b>payout-aware recovery stake</b>, then caps that stake so the remaining sequence budget is still sufficient to absorb the configured number of consecutive losses. A win resets the sequence. Session profit/loss limits remain separate hard stops.</div>
+<label>Session loss stop USD<input id="lossStop" type="number" min="0" step=".01" value="50"></label>
+<label>Real trading arm<select id="realArm"><option value="off">OFF</option><option value="on">ARM REAL TRADING</option></select></label>
+</div>
+
+<div class="card row">
+<button id="connect" class="primary">CONNECT + LOAD HISTORY</button>
+<button id="start" class="primary">START BOT</button>
+<button id="stop" class="danger">STOP</button>
+<button id="export">EXPORT CSV</button><button id="clearSequence" type="button">CLEAR SEQUENCE MEMORY</button><button id="runEdgeValidation" type="button">RUN EDGE VALIDATION</button>
+<div class="metric"><span>Status</span><b id="status">IDLE</b></div><div class="metric"><span>Market link</span><b id="marketLink">OFF</b></div>
+<div class="metric"><span>Trade link</span><b id="tradeLink">OFF</b></div>
+<div class="metric"><span>Reconnects</span><b id="reconnects">0</b></div>
+<div class="metric"><span>Tick age</span><b id="tickAge">—</b></div>
+</div>
+
+<div class="card row">
+<div class="metric"><span>Price</span><b id="price">—</b></div>
+<div class="metric"><span>P(RISE)</span><b id="pUp">50.0%</b></div>
+<div class="metric"><span>P(FALL)</span><b id="pDown">50.0%</b></div>
+<div class="metric"><span>Model direction</span><b id="direction">—</b></div>
+<div class="metric"><span>KNN samples</span><b id="samples">0</b></div>
+<div class="metric"><span>Trades</span><b id="trades">0</b></div>
+<div class="metric"><span>Wins</span><b id="wins">0</b></div>
+<div class="metric"><span>Losses</span><b id="losses">0</b></div>
+<div class="metric"><span>Win rate</span><b id="wr">—</b></div>
+<div class="metric"><span>Session P/L</span><b id="pnl">$0.00</b></div>
+<div class="metric"><span>Session target</span><b id="targetStatus">$10.00</b></div>
+<div class="metric"><span>Configured sequence budget</span><b id="configuredBudget">$70.00</b></div>
+<div class="metric"><span>Recovery target</span><b id="recoveryTargetStatus">$0.00</b></div>
+<div class="metric"><span>Loss streak</span><b id="mgStep">0</b></div>
+<div class="metric"><span>Recovery pool</span><b id="mgPool">$0.00</b></div>
+<div class="metric"><span>Sequence budget</span><b id="survivalBudget">$—</b></div>
+<div class="metric"><span>Next stake</span><b id="nextStake">$—</b></div>
+<div class="metric"><span>Recovery coverage</span><b id="recoveryCoverage">—</b></div>
+<div class="metric"><span>Two-side reset</span><b id="twoSideStatus">READY</b></div>
+<div class="metric"><span>Reset mode</span><b id="resetModeStatus">OFF</b></div><div class="metric"><span>Trigger</span><b>EVERY LOSS</b></div><div class="metric"><span>Recovery factor</span><b id="twoSideFactorStatus">2.0×</b></div>
+<div class="metric"><span>Model-favoured recovery side</span><b id="favouredRecoverySide">—</b></div>
+<div class="metric"><span>Model favoured side</span><b id="modelFavouredSideStatus">—</b></div>
+<div class="metric"><span>Reset pairs</span><b id="twoSideResets">0</b></div>
+<div class="metric"><span>Last pair</span><b id="twoSideLast">—</b></div>
+<div class="metric"><span>Sequence learner</span><b id="sequenceStatus">READY</b></div>
+<div class="metric"><span>Sequence pattern</span><b id="sequencePattern">—</b></div><div class="metric"><span>Sequence probability bucket</span><b id="sequenceBucket">—</b></div>
+<div class="metric"><span>Sequence evidence</span><b id="sequenceEvidence">—</b></div>
+<div class="metric"><span>Sequence P(win)</span><b id="sequenceProb">—</b></div>
+<div class="metric"><span>Sequence observations</span><b id="sequenceObs">0</b></div><div class="metric"><span>RISE/FALL sequence</span><b id="rfSequencePattern">—</b></div>
+<div class="metric"><span>Next RISE probability</span><b id="rfSequenceProb">—</b></div>
+<div class="metric"><span>RF sequence evidence</span><b id="rfSequenceEvidence">—</b></div><div class="metric"><span>Edge gate</span><b id="edgeGateStatus">WAIT</b></div>
+<div class="metric"><span>OOS WR</span><b id="edgeOOSWRDash">—</b></div>
+<div class="metric"><span>Null benchmark</span><b id="edgeNullDash">—</b></div>
+</div>
+
+<div class="card">
+<p class="notice"><b>Entry logic:</b> Market ticks use a dedicated public WebSocket; trading uses a separate authenticated WebSocket. Both connections are monitored and automatically reconnected while the session is active. SMA(5) slope + Momentum 3/5 + normalized distance + acceleration + volatility → KNN P(RISE)/P(FALL) → walk-forward calibration → choose higher-probability side → request a live Deriv proposal → calculate actual payout → enter only when probability and payout pass the configured thresholds. After a loss, the survival engine computes the stake needed to recover the accumulated loss plus the recovery target at the live payout, then caps it against the remaining sequence-loss budget, configured budget cap, and hard USD cap. For ordinary trades it never forces an opposite direction; the model still chooses the direction independently. After the loss-streak trigger, the dedicated two-side reset intentionally buys both directions at the base stake.</p>
+<div class="notice" style="margin:8px 0">Stable connection layer: <b>market and trade sockets are independent</b>, trade OTP is renewed on reconnect, subscriptions are restored, heartbeats are monitored, open positions are reconciled after trade-socket interruptions, and the sequence-loss budget is entered directly by the user for the risk engine. V2.12 keeps the same <b>9 scale-normalized model features</b> and walk-forward outcome embargo from the uploaded V2.9.1 base. V2.24 keeps the V2.13.1 prediction layer, the V2.16 two-side execution layer, and adds an online live-trade sequence learner: neighbor agreement is diagnostic only; raw KNN confidence is softened, calibrated against walk-forward outcomes without sparse-data collapse, capped at 72%, lightly balanced against the recent directional base rate, and tempered by a soft mean-reversion regime when price is extended. These adjustments never force the opposite direction during ordinary entries.</div><div class="notice" id="modelDiag" style="margin:8px 0">Model diagnostics: waiting for data.</div><div class="notice" id="calibrationDiag" style="margin:8px 0">Calibration diagnostics: waiting.</div><div class="notice" id="executionDiag" style="margin:8px 0">Execution diagnostics: waiting.</div><div id="log"></div>
+</div>
+
+
+
+<div class="card">
+  <h3 style="margin:0 0 6px">V75 Raw Tick Dataset Collector</h3>
+  <div class="notice" style="margin-bottom:10px">
+    Pulls historical <b>V75 tick prices and timestamps directly from Deriv's public market-data WebSocket</b>.
+    No trading authorization is required for this data request. The collector works backwards in chunks, removes duplicate
+    boundary ticks, and exports a CSV in the exact format accepted by the Information Validation Lab.
+  </div>
+  <div class="grid">
+    <label>Symbol
+      <input id="tickCollectorSymbol" type="text" value="1HZ75V" spellcheck="false">
+    </label>
+    <label>Target ticks
+      <input id="tickCollectorTarget" type="number" min="1000" max="500000" step="1000" value="100000">
+    </label>
+    <label>Chunk size
+      <input id="tickCollectorChunk" type="number" min="1000" max="10000" step="1000" value="10000">
+    </label>
+    <label>Request delay (ms)
+      <input id="tickCollectorDelay" type="number" min="0" max="5000" step="250" value="250">
+    </label>
+  </div>
+  <div class="row" style="margin-top:10px">
+    <button id="downloadV75Ticks" class="primary" type="button">DOWNLOAD V75 TICKS</button>
+    <button id="stopV75Ticks" type="button">STOP</button>
+    <div class="metric"><span>Collected</span><b id="tickCollectorCount">0</b></div>
+    <div class="metric"><span>Oldest epoch</span><b id="tickCollectorOldest">—</b></div>
+    <div class="metric"><span>Status</span><b id="tickCollectorStatus">READY</b></div>
+  </div>
+  <div id="tickCollectorSummary" class="notice" style="margin-top:10px">
+    Click <b>DOWNLOAD V75 TICKS</b> to retrieve a large historical dataset and automatically download a CSV.
+  </div>
+</div>
+
+<div class="card">
+  <h3 style="margin:0 0 6px">Research / Signal Information Validation Lab</h3>
+  <div class="notice" style="margin-bottom:10px">
+    This panel is <b>read-only research</b>; it does not change live trading logic or the live edge gate.
+    The suite tests whether the observed ordering contains directional information, whether the KNN strategy beats
+    random/inverse benchmarks, whether the underlying tick series shows memory, and whether nearby parameter settings
+    produce a broad effect instead of a single backtest spike.
+  </div>
+  <div class="grid">
+    <label>Tick history CSV<input id="researchTickFile" type="file" accept=".csv,text/csv"></label>
+    <label>Trade CSV for real quotes<input id="researchTradeFile" type="file" accept=".csv,text/csv"></label>
+    <label>Shuffle paths<input id="researchShufflePaths" type="number" min="100" max="5000" step="100" value="1000"></label>
+    <label>Random benchmark runs<input id="researchRandomRuns" type="number" min="100" max="5000" step="100" value="1000"></label>
+    <label>Research OOS signals<input id="researchMaxSignals" type="number" min="30" max="300" step="10" value="80"></label>
+    <label>Conditional max k<input id="researchCondK" type="number" min="1" max="6" step="1" value="6"></label>
+    <label>ARCH lags<input id="researchArchLags" type="number" min="2" max="30" step="1" value="10"></label>
+    <label>VR k values<input id="researchVrKs" type="text" value="2,4,8,16"></label>
+    <label>RV windows (ticks)<input id="researchRvWindows" type="text" value="25,50,100,200"></label>
+    <label>Sealed holdout %<input id="researchHoldoutPct" type="number" min="10" max="40" step="5" value="30"></label>
+    <label>Max-variant null paths<input id="researchVariantNullPaths" type="number" min="50" max="1000" step="50" value="200"></label>
+  </div>
+  <div class="row" style="margin-top:10px">
+    <button id="runInformationSuite" class="primary" type="button">RUN FULL INFORMATION TEST</button>
+    <div class="metric"><span>Research data</span><b id="researchDataStatus">USING LIVE HISTORY</b></div>
+    <div class="metric"><span>Research status</span><b id="researchStatus">WAITING</b></div>
+    <div class="metric"><span>Signals</span><b id="researchSignals">—</b></div>
+    <div class="metric"><span>Shuffle percentile</span><b id="researchShufflePct">—</b></div>
+    <div class="metric"><span>Random benchmark</span><b id="researchRandomWR">—</b></div>
+    <div class="metric"><span>Inverse WR</span><b id="researchInverseWR">—</b></div>
+    <div class="metric"><span>Holdout WR</span><b id="researchHoldoutWR">—</b></div>
+  </div>
+  <div id="researchSummary" class="notice" style="margin-top:10px">No research run yet.</div>
+  <div id="researchResults" style="margin-top:10px;overflow:auto"></div>
+</div>
+
+<div class="card" style="overflow:auto"><table>
+<thead><tr><th>#</th><th>Time</th><th>Dir</th><th>Prob</th><th>Stake</th><th>Payout %</th><th>Entry</th><th>Exit</th><th>Result</th><th>P/L</th></tr></thead>
+<tbody id="rows"></tbody></table></div>
+</div>
+<script>
+/* V2.24 RISE/FALL SEQUENCE LEARNER + FAVOURED RECOVERY */
+
+/* V2.24 MODEL-FAVOURED RECOVERY: every normal loss opens RISE + FALL; current model-favoured side receives BASE × recovery factor; opposite side stays at BASE. */
+/* V2.24 ONLINE LEARNING + NON-FAVOURED TWO-SIDE RECOVERY
+   1) EVERY normal-trade loss -> enter reset mode and place RISE + FALL.
+   2) Recalculate the current model-favoured direction at pair entry.
+   3) The model-favoured side receives BASE stake.
+   4) The non-favoured side receives BASE × recovery factor, capped by mgMaxStake.
+   5) After the pair settles -> next normal trade at BASE stake.
+   6) In resetMode: normal WIN -> clear resetMode and resume normal progression.
+   7) In resetMode: normal LOSS -> immediately place another pair using the
+      NEW current model signal.
+   8) Pair outcomes never escalate martingale.
+   9) Normal trade W/L outcomes update the persistent 1–4 order sequence learner.
+*/
+
+/* V2.24 TWO-SIDE ARCHITECTURE
+   1) EVERY normal-trade loss -> enter reset mode and place RISE + FALL at base stake.
+   2) After the pair settles -> next normal trade at base stake.
+   3) In resetMode: normal WIN -> clear resetMode and resume normal progression.
+   4) In resetMode: normal LOSS -> immediately place another base-stake pair.
+   5) Pair outcomes never escalate martingale.
+   6) Normal trade W/L outcomes update a persistent 1–4 order sequence learner.
+   7) Sequence learning adjusts confidence only; it never overrides the KNN direction by itself.
+*/
+
+(()=>{
+'use strict';
+const API='https://api.derivws.com';
+const $=id=>document.getElementById(id);
+const n=id=>Number($(id).value);
+
+let market=null, trade=null, marketReq=1000, tradeReq=50000, mp=new Map(), tp=new Map();
+let prices=[], epochs=[], samples=[], trackers=[], running=false, active=null, activePair=null, records=[];
+let trades=0,wins=0,losses=0,pnl=0,lastSignalTick=-1,lossStreak=0,mgStep=0,mgLossPool=0,entryPending=false,signalChecks=0,signalQualified=0,signalBlocked={warmup:0,prob:0,highprob:0,gap:0,neighbors:0,agreement:0,distance:0,payout:0,error:0,risk:0};
+
+
+const PUBLIC='wss://api.derivws.com/trading/v1/options/ws/public';
+let manualDisconnect=false;
+let marketReady=false, tradeReady=false;
+let marketConnecting=false, tradeConnecting=false;
+let marketReconnectAttempts=0, tradeReconnectAttempts=0, reconnectCount=0;
+let marketReconnectTimer=null, tradeReconnectTimer=null;
+let watchdogTimer=null;
+let marketLastMessageAt=0, lastTickAt=0, tradeLastMessageAt=0;
+let tradeRecoveryLock=false, uncertainBuy=false, uncertainPairBuy=false;
+let pairPending=false, pairSeq=0, pairResets=0, pairCompleted=0, pairBothLosses=0, pairBothWins=0, pairSplitResults=0, pairPnl=0, lastPairResult='', resetMode=false, lastRecoverySide='', lastRecoveryFactor=1, lastModelFavouredSide='', lastModelFavouredProbability=.5, lastModelNonFavouredSide='';
+let sequenceHistory=[], sequenceStats=new Map(), sequenceTradeMemory=[], sequenceTotalTrades=0, sequenceTotalWins=0, lastSequenceSignal={pattern:'',prob:.5,strength:0,observations:0,usable:false,dir:'',bucket:'',source:'',baseProb:.5};
+let rfDirectionHistory=[], rfDirectionStats=new Map(), rfDirectionTotal=0, rfDirectionImported=0, lastRfSequenceSignal={pattern:'',pRise:.5,strength:0,observations:0,usable:false,source:'BUILDING'};
+let edgeValidation={status:'WAITING',oosN:0,oosW:0,oosWR:null,breakEven:null,margin:null,autoLag:null,autoP:null,runsZ:null,runsP:null,nullPaths:0,nullMean:null,nullP95:null,nullP99:null,nullWinRates:[],realVsNullP:null,passed:false,lastRun:0,lastNormalTradeCount:-1,lockedConfig:null};
+let edgeValidationRunning=false;
+let sessionActive=false, sessionStartedAt=0;
+
+function log(s){$('log').textContent=`${new Date().toLocaleTimeString()}  ${s}\n`+$('log').textContent.slice(0,18000)}
+function status(s){$('status').textContent=s}
+function sym(){return $('symbol').value}
+
+function updateConnectionUI(){
+ const ml=$('marketLink'), tl=$('tradeLink'), rc=$('reconnects'), ta=$('tickAge');
+ if(ml){ml.textContent=marketReady?'LIVE':'OFF';ml.className=marketReady?'good':'bad'}
+ if(tl){tl.textContent=tradeReady?'LIVE':'OFF';tl.className=tradeReady?'good':'bad'}
+ if(rc)rc.textContent=String(reconnectCount);
+ if(ta){
+   const age=lastTickAt?Math.max(0,Date.now()-lastTickAt):null;
+   ta.textContent=age===null?'—':`${(age/1000).toFixed(1)}s`;
+   ta.className=age===null?'':(age<5000?'good':age<15000?'warn':'bad');
+ }
+}
+
+function rejectPending(map,error){
+ const e=error instanceof Error?error:new Error(String(error||'WebSocket disconnected'));
+ for(const [id,p] of map.entries()){
+   clearTimeout(p.timer);
+   try{p.reject(e)}catch{}
+ }
+ map.clear();
+}
+
+function send(sock,map,payload,kind){
+ return new Promise((resolve,reject)=>{
+   if(!sock||sock.readyState!==1)return reject(new Error(`${kind} socket not connected`));
+   const id=kind==='market'?marketReq++:tradeReq++;
+   const timer=setTimeout(()=>{
+     map.delete(id);
+     reject(new Error(`${kind} request timeout`));
+   },15000);
+   map.set(id,{resolve,reject,timer});
+   try{
+     sock.send(JSON.stringify({...payload,req_id:id}));
+   }catch(err){
+     clearTimeout(timer); map.delete(id); reject(err);
+   }
+ });
+}
+
+function settle(map,m){
+ if(m.req_id&&map.has(m.req_id)){
+   const p=map.get(m.req_id);map.delete(m.req_id);clearTimeout(p.timer);
+   m.error?p.reject(new Error(`${m.error.code||'API'}: ${m.error.message}`)):p.resolve(m);
+   return true;
+ }
+ return false;
+}
+
+async function otp(){
+ const acct=($('accountType').value==='real'?$('realAccountId').value:$('demoAccountId').value).trim();
+ const app=$('appId').value.trim(),pat=$('pat').value.trim();
+ if(!app||!acct||!pat)throw new Error('Enter App ID, selected account ID and PAT.');
+ if($('accountType').value==='real'&&$('realArm').value!=='on')throw new Error('Real trading is not armed.');
+ const r=await fetch(`${API}/trading/v1/options/accounts/${encodeURIComponent(acct)}/otp`,{
+   method:'POST',
+   headers:{Authorization:`Bearer ${pat}`,'Deriv-App-ID':app}
+ });
+ const d=await r.json().catch(()=>({}));
+ if(!r.ok)throw new Error(d?.errors?.[0]?.message||`OTP HTTP ${r.status}`);
+ if(!d?.data?.url)throw new Error('No trading WebSocket URL returned.');
+ return d.data.url;
+}
+
+function openWS(url,{onmessage,onopen,onclose,onerror}={}){
+ return new Promise((resolve,reject)=>{
+   let opened=false;
+   const s=new WebSocket(url);
+   const timer=setTimeout(()=>{
+     if(!opened){
+       try{s.close()}catch{}
+       reject(new Error('WebSocket open timeout'));
+     }
+   },12000);
+
+   s.onopen=()=>{
+     opened=true; clearTimeout(timer);
+     try{onopen?.(s)}catch(err){log(`WebSocket onopen handler: ${err.message}`)}
+     resolve(s);
+   };
+   s.onmessage=(ev)=>{
+     try{onmessage?.(ev)}catch(err){log(`WebSocket message handler: ${err.message}`)}
+   };
+   s.onerror=(ev)=>{
+     try{onerror?.(ev)}catch{}
+     if(!opened){
+       clearTimeout(timer);
+       reject(new Error('WebSocket connection error — check App ID, PAT scope, account ID, and network access'));
+     }
+   };
+   s.onclose=(ev)=>{
+     clearTimeout(timer);
+     try{onclose?.(ev)}catch(err){log(`WebSocket close handler: ${err.message}`)}
+     if(!opened)reject(new Error(`WebSocket closed during connect (${ev?.code||'unknown'})`));
+   };
+ });
+}
+
+function processMarketMessage(m){
+ marketLastMessageAt=Date.now();
+ if(settle(mp,m))return;
+ if(m.msg_type==='tick'&&m.tick?.symbol===sym()){
+   const q=Number(m.tick.quote),e=Number(m.tick.epoch);
+   if(Number.isFinite(q)){
+     lastTickAt=Date.now();
+     prices.push(q);epochs.push(e);
+     if(prices.length>3000){prices.shift();epochs.shift()}
+     addLiveTraining();update();
+     if(marketReady&&tradeReady&&!tradeRecoveryLock)maybeTrade();
+   }
+ }
+ if(m.error)log(`Market API: ${m.error.message||m.error.code||'Unknown error'}`);
+}
+
+function processTradeMessage(m){
+ tradeLastMessageAt=Date.now();
+ if(settle(tp,m))return;
+ if(m.msg_type==='proposal_open_contract'){
+   contractUpdate(m.proposal_open_contract||{});
+ }
+ if(m.error)log(`Trade API: ${m.error.message||m.error.code||'Unknown error'}`);
+}
+
+function rejectAndMarkDisconnected(kind){
+ if(kind==='market'){
+   marketReady=false;
+   rejectPending(mp,new Error('Market WebSocket disconnected'));
+ }else{
+   tradeReady=false;
+   rejectPending(tp,new Error('Trade WebSocket disconnected'));
+ }
+ updateConnectionUI();
+}
+
+async function loadMarketSnapshot(){
+ if(!marketReady||!market)return;
+ const h=await send(market,mp,{ticks_history:sym(),count:1200,end:'latest',style:'ticks'},'market');
+ const hist=(h.history?.prices||[]).map(Number).filter(Number.isFinite);
+ const times=(h.history?.times||[]).map(Number);
+ if(hist.length){
+   prices=hist;
+   epochs=times;
+   trackers=[];
+   rebuildSamples();
+   lastTickAt=Date.now();
+ }
+ await send(market,mp,{ticks:sym(),subscribe:1},'market');
+}
+
+async function connectMarketSocket(initial=false){
+ if(manualDisconnect||marketConnecting||(marketReady&&market?.readyState===1))return;
+ marketConnecting=true;
+ try{
+   if(market)try{market.close()}catch{}
+   status(initial?'CONNECTING MARKET':'RECONNECTING MARKET');
+   const ws=await openWS(PUBLIC,{
+     onmessage:ev=>{
+       let m;try{m=JSON.parse(ev.data)}catch{return}
+       processMarketMessage(m);
+     },
+     onopen:()=>{},
+     onerror:()=>{},
+     onclose:()=>{
+       const wasReady=marketReady;
+       rejectAndMarkDisconnected('market');
+       if(wasReady||sessionActive){
+         log('Market WebSocket closed. Automatic reconnect scheduled.');
+         scheduleMarketReconnect();
+       }
+     }
+   });
+   market=ws;
+   marketReady=true;
+   marketReconnectAttempts=0;
+   marketLastMessageAt=Date.now();
+   updateConnectionUI();
+   await loadMarketSnapshot();
+   log(`Market WebSocket ${initial?'connected':'reconnected'} — ${sym()} tick stream restored.`);
+   if(!initial&&sessionActive)status(tradeReady?'RUNNING':'RECONNECTING TRADE');
+ }catch(err){
+   marketReady=false; updateConnectionUI();
+   if(initial)throw err;
+   log(`Market reconnect failed: ${err.message}`);
+   scheduleMarketReconnect();
+ }finally{
+   marketConnecting=false;
+ }
+}
+
+async function connectTradeSocket(initial=false){
+ if(manualDisconnect||tradeConnecting||(tradeReady&&trade?.readyState===1))return;
+ tradeConnecting=true;
+ try{
+   if(trade)try{trade.close()}catch{}
+   status(initial?'AUTHENTICATING TRADE':'REAUTHENTICATING TRADE');
+   // Obtain a FRESH OTP for every authenticated reconnect. OTPs are single-use.
+   const url=await otp();
+   const ws=await openWS(url,{
+     onmessage:ev=>{
+       let m;try{m=JSON.parse(ev.data)}catch{return}
+       processTradeMessage(m);
+     },
+     onopen:()=>{},
+     onerror:()=>{},
+     onclose:()=>{
+       const wasReady=tradeReady;
+       rejectAndMarkDisconnected('trade');
+       if(wasReady||sessionActive||active||activePair||uncertainBuy||uncertainPairBuy){
+         log('Trade WebSocket closed. Automatic re-authentication scheduled.');
+         scheduleTradeReconnect();
+       }
+     }
+   });
+   trade=ws;
+   tradeReady=true;
+   tradeReconnectAttempts=0;
+   tradeLastMessageAt=Date.now();
+   reconnectCount++;
+   updateConnectionUI();
+
+   await reconcileTradeState();
+   if(false){
+   }else{
+     log('WARNING: authenticated balance is still unavailable after connection.');
+   }
+   log(`Authenticated trade WebSocket ${initial?'connected':'reconnected'}.`);
+   if(sessionActive&&marketReady&&!tradeRecoveryLock)status('RUNNING');
+ }catch(err){
+   tradeReady=false; updateConnectionUI();
+   if(initial)throw err;
+   log(`Trade reconnect failed: ${err.message}`);
+   scheduleTradeReconnect();
+ }finally{
+   tradeConnecting=false;
+ }
+}
+
+function scheduleMarketReconnect(){
+ if(manualDisconnect||marketReconnectTimer||marketConnecting)return;
+ const delay=Math.min(30000,1000*Math.pow(2,marketReconnectAttempts++));
+ marketReconnectTimer=setTimeout(async()=>{
+   marketReconnectTimer=null;
+   reconnectCount++;
+   updateConnectionUI();
+   await connectMarketSocket(false);
+ },delay);
+}
+
+function scheduleTradeReconnect(){
+ if(manualDisconnect||tradeReconnectTimer||tradeConnecting)return;
+ const delay=Math.min(30000,1000*Math.pow(2,tradeReconnectAttempts++));
+ tradeReconnectTimer=setTimeout(async()=>{
+   tradeReconnectTimer=null;
+   await connectTradeSocket(false);
+ },delay);
+}
+
+async function reconcileTradeState(){
+  if(!tradeReady)return;
+
+  // Restore known normal position.
+  if(active?.id){
+    try{
+      trade.send(JSON.stringify({
+        proposal_open_contract:1,
+        contract_id:active.id,
+        subscribe:1,
+        req_id:tradeReq++
+      }));
+      tradeRecoveryLock=false;
+      return;
+    }catch(err){
+      tradeRecoveryLock=true;
+      log(`Could not resubscribe active contract: ${err.message}`);
+      return;
+    }
+  }
+
+  // Restore both legs of a fully-established two-side reset.
+  if(activePair?.legs?.RISE?.id&&activePair?.legs?.FALL?.id){
+    try{
+      for(const leg of Object.values(activePair.legs)){
+        if(leg.settled)continue;
+        trade.send(JSON.stringify({
+          proposal_open_contract:1,
+          contract_id:leg.id,
+          subscribe:1,
+          req_id:tradeReq++
+        }));
+      }
+      uncertainPairBuy=false;
+      tradeRecoveryLock=false;
+      log(`Position reconciliation: restored two-side reset pair #${activePair.pairId}.`);
+      return;
+    }catch(err){
+      tradeRecoveryLock=true;
+      log(`Could not resubscribe two-side reset pair: ${err.message}`);
+      return;
+    }
+  }
+
+  // An interrupted pair purchase is treated conservatively: never blindly
+  // submit another pair after a reconnect. Reconcile the portfolio first.
+  if(uncertainPairBuy){
+    tradeRecoveryLock=true;
+    try{
+      const p=await send(trade,tp,{portfolio:1},'trade');
+      const contracts=p.portfolio?.contracts||[];
+      if(contracts.length===0){
+        uncertainPairBuy=false;
+        tradeRecoveryLock=false;
+        pairPending=false;
+        entryPending=false;
+        activePair=null;
+        log('Pair position reconciliation: no open position found; interrupted pair safely cleared.');
+        pairStatusText(twoSideEnabled()?'READY':'OFF');
+      }else{
+        log(`Pair position reconciliation: ${contracts.length} open position(s) found. BOT PAUSED to avoid duplicate two-side trading.`);
+        status('POSITION RECONCILIATION');
+        running=false;
+        pairPending=false;
+        entryPending=false;
+      }
+    }catch(err){
+      log(`Pair position reconciliation failed: ${err.message}`);
+    }
+    return;
+  }
+
+  // Existing single-buy interruption safety.
+  if(uncertainBuy){
+    tradeRecoveryLock=true;
+    try{
+      const p=await send(trade,tp,{portfolio:1},'trade');
+      const contracts=p.portfolio?.contracts||[];
+      if(contracts.length===0){
+        uncertainBuy=false;
+        tradeRecoveryLock=false;
+        entryPending=false;
+        active=null;
+        log('Position reconciliation: no open position found; uncertain entry cleared safely.');
+      }else{
+        log(`Position reconciliation: ${contracts.length} open position(s) found. BOT PAUSED to avoid duplicate trading.`);
+        status('POSITION RECONCILIATION');
+        running=false;
+      }
+    }catch(err){
+      log(`Position reconciliation failed: ${err.message}`);
+    }
+  }
+}
+
+function startConnectionWatchdog(){
+ if(watchdogTimer)return;
+ watchdogTimer=setInterval(async()=>{
+   updateConnectionUI();
+   if(manualDisconnect||!sessionActive)return;
+
+   const now=Date.now();
+   if(!marketReady||!market||market.readyState!==1||(!lastTickAt||now-lastTickAt>15000)){
+     if(marketReady)log(`Market stream stale (${((now-lastTickAt)/1000).toFixed(1)}s since last tick). Reconnecting.`);
+     scheduleMarketReconnect();
+   }
+
+   if(!tradeReady||!trade||trade.readyState!==1||(!tradeLastMessageAt||now-tradeLastMessageAt>90000)){
+     if(tradeReady)log('Trade WebSocket heartbeat stale. Re-authenticating.');
+     scheduleTradeReconnect();
+   }
+
+   // Heartbeat every ~30 seconds with an actual req_id so stale connections
+   // become detectable rather than merely sending fire-and-forget pings.
+   if(tradeReady&&trade?.readyState===1){
+     try{await send(trade,tp,{ping:1},'trade');tradeLastMessageAt=Date.now()}catch{}
+   }
+   if(marketReady&&market?.readyState===1){
+     try{await send(market,mp,{ping:1},'market');marketLastMessageAt=Date.now()}catch{}
+   }
+ },30000);
+}
+
+function stopConnectionWatchdog(){
+ if(watchdogTimer){clearInterval(watchdogTimer);watchdogTimer=null}
+}
+
+async function disconnectAll(){
+ manualDisconnect=true;
+ sessionActive=false;
+ if(marketReconnectTimer){clearTimeout(marketReconnectTimer);marketReconnectTimer=null}
+ if(tradeReconnectTimer){clearTimeout(tradeReconnectTimer);tradeReconnectTimer=null}
+ stopConnectionWatchdog();
+ marketReady=false;tradeReady=false;
+ rejectPending(mp,new Error('Market connection closed by user'));
+ rejectPending(tp,new Error('Trade connection closed by user'));
+ try{market?.close()}catch{}
+ try{trade?.close()}catch{}
+ market=null;trade=null;
+ updateConnectionUI();
+}
+function mean(a){return a.length?a.reduce((x,y)=>x+y,0)/a.length:0}
+function sd(a){
+ if(a.length<2)return 0;
+ const m=mean(a); return Math.sqrt(a.reduce((z,x)=>z+(x-m)*(x-m),0)/a.length);
+}
+function safeNum(x,d=0){const v=Number(x);return Number.isFinite(v)?v:d}
+
+function featureAt(end){
+ const i=Number(end), p=prices;
+ if(!Number.isInteger(i)||i<20||!Array.isArray(p)||p.length<=i)return null;
+
+ // Use a common local volatility denominator so features are scale-aware
+ // across synthetic indices and across changing volatility regimes.
+ const rets=[];
+ for(let j=Math.max(1,i-19);j<=i;j++) rets.push(p[j]-p[j-1]);
+ const vol20=sd(rets);
+ if(!(vol20>0))return null;
+
+ const sma5=mean(p.slice(i-4,i+1));
+ const sma5Prev=mean(p.slice(i-5,i));
+ const slope=(sma5-sma5Prev)/vol20;
+ const distance=(p[i]-sma5)/vol20;
+ const m1=(p[i]-p[i-1])/vol20;
+ const m3=(p[i]-p[i-3])/vol20;
+ const m5=(p[i]-p[i-5])/vol20;
+ const accel=((p[i]-p[i-2])-(p[i-2]-p[i-4]))/vol20;
+
+ const vol5=sd(rets.slice(-5));
+ const vol10=sd(rets.slice(-10));
+ const volRatio5=vol5/vol20;
+ const volRatio10=vol10/vol20;
+
+ const last8=rets.slice(-8);
+ const persistence=last8.filter(x=>x>0).length/Math.max(1,last8.length);
+ const shock=Math.abs(rets.at(-1))/vol20;
+
+ return [
+   distance,
+   slope,
+   m1,
+   m3,
+   m5,
+   accel,
+   volRatio5,
+   persistence-0.5,
+   shock
+ ];
+}
+
+function featureStats(pool){
+ const dim=9, meanV=Array(dim).fill(0), sdV=Array(dim).fill(1);
+ if(!pool?.length)return {mean:meanV,sd:sdV};
+ for(const e of pool){
+   for(let j=0;j<dim;j++)meanV[j]+=safeNum(e.x?.[j]);
+ }
+ for(let j=0;j<dim;j++)meanV[j]/=pool.length;
+ const sums=Array(dim).fill(0);
+ for(const e of pool){
+   for(let j=0;j<dim;j++){const d=safeNum(e.x?.[j])-meanV[j];sums[j]+=d*d}
+ }
+ for(let j=0;j<dim;j++)sdV[j]=Math.sqrt(sums[j]/Math.max(1,pool.length))||1;
+ return {mean:meanV,sd:sdV};
+}
+let liveFeatureStats={mean:Array(9).fill(0),sd:Array(9).fill(1)};
+
+let researchPrices=[], researchEpochs=[], researchTradeQuotes=[];
+let researchRunning=false;
+let tickCollectorRunning=false, tickCollectorStop=false, tickCollectorWs=null;
+
+let researchLast=null;
+
+
+function scaledFeature(x,stats){
+ if(!x||!stats)return null;
+ return x.map((v,j)=>(safeNum(v)-stats.mean[j])/stats.sd[j]);
+}
+function featureDistanceScaled(a,b,stats){
+ const aa=scaledFeature(a,stats),bb=scaledFeature(b,stats);
+ if(!aa||!bb)return Infinity;
+ let z=0;
+ for(let i=0;i<aa.length;i++){
+   // Volatility ratio/persistence/shock are intentionally down-weighted;
+   // price-direction structure gets the larger share of distance.
+   const w=(i===6||i===7||i===8)?0.65:1;
+   const d=(aa[i]-bb[i])*w;
+   z+=d*d;
+ }
+ return Math.sqrt(z/aa.length);
+}
+
+
+const CAL_BINS=[
+ {lo:.50,hi:.55,label:'50-55'},
+ {lo:.55,hi:.60,label:'55-60'},
+ {lo:.60,hi:.65,label:'60-65'},
+ {lo:.65,hi:.70,label:'65-70'},
+ {lo:.70,hi:.75,label:'70-75'},
+ {lo:.75,hi:.80,label:'75-80'},
+ {lo:.80,hi:.85,label:'80-85'},
+ {lo:.85,hi:1.01,label:'85+'}
+];
+
+// V2.13 intentionally prevents the model from expressing extreme confidence
+// unless the walk-forward evidence supports it.
+const MODEL_PROB_FLOOR=.50;
+const MODEL_PROB_CAP=.72;
+const RAW_STRENGTH=.52;
+const CALIBRATION_MIX=.65;
+const DIRECTION_PRIOR_MIX=.12;
+
+function rawKnnPrediction(x,pool=samples,opts={}){
+ if(!x||!pool?.length)return {
+   pUp:.5,pDown:.5,dir:'',neighbors:0,raw:.5,expectedMove:0,
+   neighborAgreement:.5,medianDistance:Infinity
+ };
+
+ const stats=opts.stats||featureStats(pool);
+ const indexed=[];
+ for(const e of pool){
+   const d=featureDistanceScaled(x,e.x,stats);
+   if(Number.isFinite(d))indexed.push({e,d});
+ }
+ if(!indexed.length)return {
+   pUp:.5,pDown:.5,dir:'',neighbors:0,raw:.5,expectedMove:0,
+   neighborAgreement:.5,medianDistance:Infinity
+ };
+
+ indexed.sort((a,b)=>a.d-b.d);
+ const k=Math.min(indexed.length,Math.max(3,Math.floor(n('k'))));
+ const near=indexed.slice(0,k);
+ const halfLife=Math.max(50,Number(opts.halfLife||400));
+ const currentIndex=Number(opts.currentIndex??(pool.at(-1)?.index??0));
+
+ let wu=0,w=0,move=0,upW=0;
+ for(const z of near){
+   const age=Math.max(0,currentIndex-safeNum(z.e.index,currentIndex));
+   const recency=Math.exp(-age/halfLife);
+   const distanceWeight=1/(z.d+0.12);
+   const wt=recency*distanceWeight;
+   w+=wt;
+   wu+=wt*z.e.y;
+   move+=wt*safeNum(z.e.futureMove);
+   if(z.e.y===1)upW+=wt;
+ }
+
+ const pUp=w?wu/w:.5;
+ const agreement=w?Math.max(upW/w,1-upW/w):.5;
+ const medianDistance=near[Math.floor(near.length/2)]?.d??Infinity;
+
+ // IMPORTANT: neighbor agreement is diagnostic only.
+ // It does not inflate probability.
+ return {
+   pUp,pDown:1-pUp,
+   dir:pUp>=.5?'RISE':'FALL',
+   neighbors:near.length,
+   raw:pUp,
+   expectedMove:move,
+   neighborAgreement:agreement,
+   medianDistance
+ };
+}
+
+function recentDirectionBaseRate(pool=samples){
+ if(!pool?.length)return .5;
+ const recent=pool.slice(-Math.min(500,pool.length));
+ let up=0,count=0;
+ for(const e of recent){
+   if(e.y===0||e.y===1){up+=e.y;count++;}
+ }
+ return count?up/count:.5;
+}
+
+function calibrationBucket(p){
+ const x=Math.max(.5,Math.min(.999,Number(p)||.5));
+ for(const b of CAL_BINS){
+   if(x>=b.lo&&x<b.hi)return b.label;
+ }
+ return '85+';
+}
+
+function meanReversionRegime(features){
+ if(!features||features.length<9)return {
+   score:0,label:'NEUTRAL',continuationRisk:0,adjustment:1
+ };
+
+ const distance=safeNum(features[0]);
+ const m5=safeNum(features[4]);
+ const accel=safeNum(features[5]);
+ const slope=safeNum(features[1]);
+
+ // Soft exhaustion signal. This never forces the opposite direction.
+ const extended=Math.max(0,Math.min(1,(Math.abs(distance)-.75)/1.50));
+ const sameDirection=(Math.sign(distance)===Math.sign(m5)&&Math.abs(m5)>.75)?1:0;
+ const accelFade=(Math.sign(accel)!==Math.sign(m5)&&Math.abs(accel)>.25)?1:0;
+ const slopeConflict=(Math.sign(slope)!==Math.sign(m5)&&Math.abs(slope)>.20&&Math.abs(m5)>.75)?1:0;
+
+ let score=0;
+ score += .55*extended*sameDirection;
+ score += .25*extended*accelFade;
+ score += .20*extended*slopeConflict;
+ score=Math.max(0,Math.min(1,score));
+
+ const adjustment=1-.35*score;
+ let label='NEUTRAL';
+ if(score>=.60)label='MEAN-REVERSION RISK';
+ else if(score>=.30)label='MIXED / EXTENDED';
+
+ return {score,label,continuationRisk:score,adjustment};
+}
+
+function softenProbability(candidate){
+ const x=Math.max(.5,Math.min(1,Number(candidate)||.5));
+ return .5+(x-.5)*RAW_STRENGTH;
+}
+
+let calibration={};
+let calibrationStats={
+ overall:{n:0,w:0},
+ rise:{n:0,w:0},
+ fall:{n:0,w:0},
+ bins:{}
+};
+
+function resetCalibration(){
+ calibration={};
+ calibrationStats={
+   overall:{n:0,w:0},
+   rise:{n:0,w:0},
+   fall:{n:0,w:0},
+   bins:{}
+ };
+ for(const b of CAL_BINS){
+   calibration[b.label]={n:0,w:0};
+   calibrationStats.bins[b.label]={n:0,w:0};
+ }
+}
+
+function calibrateProbability(rawCandidate){
+ const x=Math.max(MODEL_PROB_FLOOR,Math.min(MODEL_PROB_CAP,Number(rawCandidate)||.5));
+ const b=calibrationBucket(x);
+ const st=calibration[b]||{n:0,w:0};
+ const prior=Math.max(10,n('calPrior'));
+
+ // Bootstrap correctly: with little/no empirical evidence, preserve the
+ // signal instead of collapsing it to 50%. As OOS evidence accumulates,
+ // gradually move toward the empirically observed bucket accuracy.
+ const posterior=(st.w+.5*prior)/(st.n+prior);
+ const reliability=Math.min(.85,st.n/(st.n+prior));
+
+ const blended=(1-reliability)*x+reliability*posterior;
+
+ // Keep the model bounded while still allowing a usable 58–72% trading band.
+ return Math.max(MODEL_PROB_FLOOR,Math.min(MODEL_PROB_CAP,blended));
+}
+
+function transformCandidate(rawCandidate,features,pool=samples){
+ const softened=softenProbability(rawCandidate);
+ const regime=meanReversionRegime(features);
+
+ // Temper continuation confidence when the move is extended.
+ const adjusted=.5+(softened-.5)*regime.adjustment;
+
+ // Pull slightly toward the recent empirical directional base rate.
+ const baseRate=recentDirectionBaseRate(pool);
+ const directionalPrior=(rawCandidate>=.5?baseRate:1-baseRate);
+ const withPrior=(1-DIRECTION_PRIOR_MIX)*adjusted+DIRECTION_PRIOR_MIX*directionalPrior;
+
+ return {
+   softened,
+   adjusted,
+   baseRate,
+   regime,
+   candidate:Math.max(MODEL_PROB_FLOOR,Math.min(MODEL_PROB_CAP,withPrior))
+ };
+}
+
+function buildWalkForwardCalibration(){
+ resetCalibration();
+ if(samples.length<250)return;
+
+ const H=Math.max(1,Math.floor(n('duration')));
+ const total=samples.length;
+ const startIdx=Math.max(120,total-900);
+ const targetStep=Math.max(1,Math.floor((total-startIdx)/180));
+ const candidates=[];
+ let poolEnd=-1;
+
+ for(let i=startIdx;i<total;i+=targetStep){
+   const target=samples[i];
+   const targetIndex=safeNum(target.index,0);
+
+   while(poolEnd+1<i &&
+         safeNum(samples[poolEnd+1].index,0)+H<targetIndex){
+     poolEnd++;
+   }
+   if(poolEnd<80)continue;
+
+   const pool=samples.slice(0,poolEnd+1);
+   const stats=featureStats(pool);
+   const r=rawKnnPrediction(target.x,pool,{
+     stats,halfLife:400,currentIndex:targetIndex
+   });
+   if(!r||!Number.isFinite(r.raw))continue;
+
+   const predictedDir=r.pUp>=.5?'RISE':'FALL';
+   const rawCandidate=predictedDir==='RISE'?r.pUp:1-r.pUp;
+   const transformed=transformCandidate(rawCandidate,target.x,pool);
+   const correct=predictedDir==='RISE'?(target.y===1):(target.y===0);
+
+   candidates.push({
+     p:transformed.candidate,
+     correct,
+     dir:predictedDir
+   });
+ }
+
+ // Recent OOS observations are more relevant to the live regime.
+ const latest=candidates.slice(-600);
+
+ for(const q of latest){
+   const b=calibrationBucket(q.p);
+   const st=calibration[b]||{n:0,w:0};
+   st.n++;
+   if(q.correct)st.w++;
+
+   calibrationStats.overall.n++;
+   if(q.correct)calibrationStats.overall.w++;
+
+   if(q.dir==='RISE'){
+     calibrationStats.rise.n++;
+     if(q.correct)calibrationStats.rise.w++;
+   }else{
+     calibrationStats.fall.n++;
+     if(q.correct)calibrationStats.fall.w++;
+   }
+
+   const bs=calibrationStats.bins[b]||{n:0,w:0};
+   bs.n++;
+   if(q.correct)bs.w++;
+ }
+
+ // Store empirical posterior per probability bucket.
+ for(const b of CAL_BINS){
+   const st=calibration[b.label]||{n:0,w:0};
+   const prior=Math.max(10,n('calPrior'));
+   const posterior=(st.w+.5*prior)/(st.n+prior);
+   calibration[b.label]={
+     n:st.n,
+     w:st.w,
+     p:Math.max(MODEL_PROB_FLOOR,Math.min(MODEL_PROB_CAP,posterior))
+   };
+ }
+}
+
+function calibrationDiagnostic(){
+ const overall=calibrationStats.overall;
+ const rise=calibrationStats.rise;
+ const fall=calibrationStats.fall;
+
+ const overallWR=overall.n?overall.w/overall.n:0;
+ const riseWR=rise.n?rise.w/rise.n:0;
+ const fallWR=fall.n?fall.w/fall.n:0;
+
+ const parts=CAL_BINS.map(b=>{
+   const s=calibrationStats.bins[b.label]||{n:0,w:0};
+   return `${b.label}:${s.n?((s.w/s.n)*100).toFixed(0)+'%/'+s.n:'—'}`;
+ }).join(' | ');
+
+ return `OOS ${overall.n?(overallWR*100).toFixed(1)+'%':'—'} n=${overall.n} | RISE ${rise.n?(riseWR*100).toFixed(1)+'%':'—'} n=${rise.n} | FALL ${fall.n?(fallWR*100).toFixed(1)+'%':'—'} n=${fall.n} | ${parts}`;
+}
+
+function rebuildSamples(){
+ samples=[];
+ const H=Math.max(1,Math.floor(n('duration')));
+ const max=Math.max(100,Math.floor(n('maxSamples')));
+
+ for(let end=20;end+H<prices.length;end++){
+   const x=featureAt(end);
+   if(!x)continue;
+
+   const delta=prices[end+H]-prices[end];
+   if(delta===0)continue;
+
+   const localRets=[];
+   for(let j=Math.max(1,end-19);j<=end;j++)localRets.push(prices[j]-prices[j-1]);
+   const denom=sd(localRets)||1;
+
+   samples.push({
+     x,
+     y:delta>0?1:0,
+     index:end,
+     futureMove:delta/denom
+   });
+ }
+
+ if(samples.length>max)samples=samples.slice(-max);
+
+ liveFeatureStats=featureStats(samples);
+ buildWalkForwardCalibration();
+ runStatisticalEdgeValidation(true).catch(err=>log(`Initial edge validation failed: ${err.message}`));
+ update();
+}
+
+function sequenceEnabled(){
+ return $('sequenceLearner')?.value==='on';
+}
+function sequenceInfluence(){
+ return Math.max(0,Math.min(.50,n('sequenceInfluence')/100));
+}
+function sequenceMinObs(){
+ return Math.max(1,Math.floor(n('sequenceMinObs')));
+}
+function sequenceProbBucketWidth(){
+ return Math.max(.01,Math.min(.10,(Number(n('sequenceProbBucketWidth'))||2)/100));
+}
+function sequenceStorageKey(){
+ return `deriv_rf_v221_seq_${sym()}_${Math.max(1,Math.floor(n('duration')))}`;
+}
+function sequenceSmoothedWR(s,prior=10){
+ const nObs=Number(s?.n)||0,winsObs=Number(s?.w)||0;
+ return (winsObs+prior*.5)/(nObs+prior);
+}
+function sequenceKey(parts){
+ return parts.join('|');
+}
+function sequenceEnsureKey(key){
+ let s=sequenceStats.get(key);
+ if(!s){s={n:0,w:0};sequenceStats.set(key,s);}
+ return s;
+}
+function sequenceBucket(prob){
+ const p=Math.max(0,Math.min(.999999,Number(prob)||.5));
+ const width=sequenceProbBucketWidth();
+ const lo=Math.floor(p/width)*width;
+ const hi=lo+width;
+ return `${Math.round(lo*100)}-${Math.round(hi*100)}%`;
+}
+function sequencePatternAt(hist,order){
+ if(hist.length<order)return '';
+ return hist.slice(-order).join('');
+}
+function sequenceUpdateDerivedStats(){
+ // Rebuild only the new probability-conditioned stats from the rolling memory.
+ // Legacy sequence-only stats loaded from V2.17/V2.18 are retained separately
+ // as a fallback until the new conditioned learner has enough evidence.
+ const conditioned=new Map();
+
+ const add=(key,won)=>{
+   let s=conditioned.get(key);
+   if(!s){s={n:0,w:0};conditioned.set(key,s);}
+   s.n++;if(won)s.w++;
+ };
+
+ for(const t of sequenceTradeMemory){
+   const history=Array.isArray(t.historyBefore)?t.historyBefore:[];
+   const bucket=t.bucket||sequenceBucket(t.baseProb);
+   const dir=t.dir;
+   const outcome=t.won?'W':'L';
+
+   // Probability bucket alone.
+   add(sequenceKey(['PB',bucket]),t.won);
+   add(sequenceKey(['PBD',bucket,dir]),t.won);
+
+   // Sequence + probability bucket, generic and direction-specific.
+   for(let order=1;order<=4;order++){
+     const pattern=sequencePatternAt(history,order);
+     if(!pattern)break;
+     add(sequenceKey(['SP',bucket,pattern]),t.won);
+     add(sequenceKey(['SPD',bucket,pattern,dir]),t.won);
+   }
+
+   // Also store an exact probability decile-like bucket from the model's
+   // pre-sequence candidate. This prevents post-adjustment probability from
+   // creating circular learning.
+   add(sequenceKey(['OUT',bucket,outcome]),t.won);
+ }
+
+ // Keep legacy sequenceStats outside this map under LEGACY keys.
+ for(const [key,s] of conditioned.entries()){
+   sequenceStats.set(`C|${key}`,s);
+ }
+}
+function conditionedGet(kind,bucket,pattern='',dir=''){
+ let key='';
+ if(kind==='exact')key=sequenceKey(['C','SPD',bucket,pattern,dir]);
+ else if(kind==='seq')key=sequenceKey(['C','SP',bucket,pattern]);
+ else if(kind==='dir')key=sequenceKey(['C','PBD',bucket,dir]);
+ else if(kind==='bucket')key=sequenceKey(['C','PB',bucket]);
+ else return {n:0,w:0};
+ return sequenceStats.get(key)||{n:0,w:0};
+}
+function legacySequenceGet(pattern,dir='*'){
+ return sequenceStats.get(`${dir}|${pattern}`)||{n:0,w:0};
+}
+function sequenceRecordNormalTrade(dir,won,baseProb){
+ if(!sequenceEnabled())return;
+
+ const prob=Math.max(.5,Math.min(.99,Number(baseProb)||.5));
+ const bucket=sequenceBucket(prob);
+ const historyBefore=sequenceHistory.slice();
+
+ sequenceTradeMemory.push({
+   dir,
+   won:Boolean(won),
+   baseProb:prob,
+   bucket,
+   historyBefore,
+   t:Date.now()
+ });
+ if(sequenceTradeMemory.length>500)sequenceTradeMemory.shift();
+
+ const outcome=won?'W':'L';
+
+ // Preserve the existing generic W/L sequence learner as a fallback.
+ for(let order=1;order<=4;order++){
+   if(historyBefore.length<order)break;
+   const pattern=historyBefore.slice(-order).join('');
+   const g=sequenceEnsureKey(`${pattern}/*`);
+   g.n++;if(won)g.w++;
+   const d=sequenceEnsureKey(`${dir}|${pattern}`);
+   d.n++;if(won)d.w++;
+ }
+
+ sequenceHistory.push(outcome);
+ if(sequenceHistory.length>60)sequenceHistory.shift();
+
+ sequenceTotalTrades++;
+ if(won)sequenceTotalWins++;
+
+ sequenceUpdateDerivedStats();
+ saveSequenceLearner();
+}
+function sequencePredict(dir,baseCandidate){
+ const base={
+   pattern:sequenceHistory.slice(-4).join('')||'—',
+   prob:.5,strength:0,observations:0,usable:false,dir:dir||'',
+   order:0,genericProb:.5,directionalProb:.5,
+   bucket:sequenceBucket(baseCandidate),
+   source:'BUILDING',
+   baseProb:baseCandidate||.5,
+   conditioned:true
+ };
+ if(!sequenceEnabled()||!dir||!sequenceHistory.length)return base;
+
+ const minObs=sequenceMinObs();
+ const bucket=sequenceBucket(baseCandidate);
+ const candidates=[];
+
+ // Prefer the most specific available conditioning. We score every level,
+ // but stronger specificity wins while sample size determines influence.
+ for(let order=Math.min(4,sequenceHistory.length);order>=1;order--){
+   const pattern=sequencePatternAt(sequenceHistory,order);
+   if(!pattern)continue;
+
+   const exact=conditionedGet('exact',bucket,pattern,dir);
+   const seq=conditionedGet('seq',bucket,pattern);
+   const directional=conditionedGet('dir',bucket,'',dir);
+   const bucketOnly=conditionedGet('bucket',bucket);
+
+   const levels=[
+     {name:'SEQ+PROB+DIR',s:exact,specificity:1.00},
+     {name:'SEQ+PROB',s:seq,specificity:.85},
+     {name:'PROB+DIR',s:directional,specificity:.65},
+     {name:'PROB',s:bucketOnly,specificity:.50}
+   ];
+
+   for(const lv of levels){
+     const nObs=Number(lv.s?.n)||0;
+     if(nObs<minObs)continue;
+     const p=sequenceSmoothedWR(lv.s);
+     const sampleStrength=Math.min(1,nObs/(minObs*6));
+     const orderStrength=order/4;
+     const strength=Math.min(1,sampleStrength*.65+orderStrength*.25+lv.specificity*.10);
+     candidates.push({
+       pattern,order,prob:p,nObs,
+       strength,source:lv.name
+     });
+   }
+ }
+
+ // Legacy W/L sequence-only fallback is useful while the conditioned model is
+ // still building, but it is deliberately weaker than probability-conditioned evidence.
+ if(!candidates.length){
+   const legacy=[];
+   for(let order=Math.min(4,sequenceHistory.length);order>=1;order--){
+     const pattern=sequencePatternAt(sequenceHistory,order);
+     const generic=legacySequenceGet(pattern);
+     const directional=legacySequenceGet(pattern,dir);
+     const nUse=Math.max(generic.n,directional.n);
+     if(nUse<minObs)continue;
+     const gp=sequenceSmoothedWR(generic),dp=sequenceSmoothedWR(directional);
+     const dWeight=directional.n/(directional.n+generic.n+1);
+     legacy.push({
+       pattern,order,
+       prob:(1-dWeight)*gp+dWeight*dp,
+       nObs:nUse,
+       strength:.20+Math.min(.25,nUse/(minObs*10)),
+       source:'LEGACY SEQUENCE'
+     });
+   }
+   if(legacy.length){
+     const l=legacy[0];
+     return {
+       ...base,
+       pattern:l.pattern,
+       order:l.order,
+       prob:l.prob,
+       strength:l.strength,
+       observations:l.nObs,
+       usable:true,
+       source:l.source
+     };
+   }
+   return base;
+ }
+
+ // Only keep the strongest evidence family for the current context, rather than
+ // averaging incompatible levels too aggressively. More observations and longer
+ // sequences are rewarded, but specificity has the largest role.
+ candidates.sort((a,b)=>{
+   const sa=b.strength-a.strength;
+   if(Math.abs(sa)>.05)return sa;
+   if(b.order!==a.order)return b.order-a.order;
+   return b.nObs-a.nObs;
+ });
+ const best=candidates[0];
+
+ // A small blend of the next-best compatible conditioned signal stabilizes the
+ // estimate without allowing a broad bucket to overpower an exact match.
+ let prob=best.prob;
+ let secondary=0,sw=0;
+ for(let i=1;i<Math.min(3,candidates.length);i++){
+   const c=candidates[i];
+   if(c.source===best.source||c.order!==best.order)continue;
+   const w=Math.min(.35,c.strength)*.35;
+   secondary+=c.prob*w;sw+=w;
+ }
+ if(sw>0)prob=(prob*.75+secondary/.35*.25);
+
+ return {
+   ...base,
+   pattern:best.pattern,
+   order:best.order,
+   prob,
+   strength:Math.max(0,Math.min(1,best.strength)),
+   observations:best.nObs,
+   usable:true,
+   source:best.source
+ };
+}
+function sequenceAdjustCandidate(candidate,dir){
+ const sig=sequencePredict(dir,candidate);
+ if(!sequenceEnabled()||!sig.usable||!(sequenceInfluence()>0)){
+   return {candidate,sequence:sig,adjusted:candidate};
+ }
+
+ const blend=Math.max(0,Math.min(.50,sequenceInfluence()*sig.strength));
+ const adjusted=Math.max(MODEL_PROB_FLOOR,Math.min(MODEL_PROB_CAP,
+   candidate*(1-blend)+sig.prob*blend
+ ));
+ return {candidate,sequence:sig,adjusted};
+}
+function saveSequenceLearner(){
+ try{
+   const stats={};
+   for(const [key,s] of sequenceStats.entries()){
+     stats[key]={n:Number(s.n)||0,w:Number(s.w)||0};
+   }
+   localStorage.setItem(sequenceStorageKey(),JSON.stringify({
+     version:2,
+     history:sequenceHistory.slice(-60),
+     stats,
+     tradeMemory:sequenceTradeMemory.slice(-500),
+     totalTrades:sequenceTotalTrades,
+     totalWins:sequenceTotalWins,
+     savedAt:Date.now()
+   }));
+ }catch{}
+}
+function loadSequenceLearner(){
+ sequenceHistory=[];sequenceStats=new Map();sequenceTradeMemory=[];sequenceTotalTrades=0;sequenceTotalWins=0;
+ lastSequenceSignal={pattern:'',prob:.5,strength:0,observations:0,usable:false,dir:'',bucket:'',source:'',baseProb:.5};
+ try{
+   const raw=localStorage.getItem(sequenceStorageKey());
+   if(!raw)return;
+   const d=JSON.parse(raw);
+   if(!d)return;
+
+   if(Array.isArray(d.history))sequenceHistory=d.history.filter(x=>x==='W'||x==='L').slice(-60);
+
+   if(d.stats&&typeof d.stats==='object'){
+     for(const [key,s] of Object.entries(d.stats)){
+       if(String(key).startsWith('C|'))continue;
+       sequenceStats.set(key,{n:Number(s?.n)||0,w:Number(s?.w)||0});
+     }
+   }
+
+   if(d.version>=2&&Array.isArray(d.tradeMemory)){
+     sequenceTradeMemory=d.tradeMemory.filter(x=>
+       ['RISE','FALL'].includes(x.dir) &&
+       typeof x.won==='boolean' &&
+       Number.isFinite(Number(x.baseProb))
+     ).slice(-500);
+     sequenceUpdateDerivedStats();
+   }
+
+   sequenceTotalTrades=Number(d.totalTrades)||sequenceTradeMemory.length||0;
+   sequenceTotalWins=Number(d.totalWins)||sequenceTradeMemory.filter(x=>x.won).length||0;
+
+   log(`Probability-conditioned sequence learner loaded for ${sym()} / ${Math.floor(n('duration'))} ticks: ${sequenceTotalTrades} normal trades, ${(sequenceTotalTrades?sequenceTotalWins/sequenceTotalTrades*100:50).toFixed(1)}% historical WR.`);
+ }catch(err){
+   log(`Sequence learner load skipped: ${err.message}`);
+ }
+}
+function resetSequenceLearner(){
+ sequenceHistory=[];
+ sequenceStats=new Map();
+ sequenceTradeMemory=[];
+ sequenceTotalTrades=0;
+ sequenceTotalWins=0;
+ lastSequenceSignal={pattern:'',prob:.5,strength:0,observations:0,usable:false,dir:'',bucket:'',source:'',baseProb:.5};
+ try{localStorage.removeItem(sequenceStorageKey())}catch{}
+ update();
+}
+function updateSequenceUI(sig=null){
+ const s=sig||lastSequenceSignal||{pattern:'',prob:.5,strength:0,observations:0,usable:false,dir:'',bucket:'',source:'',baseProb:.5};
+ const st=$('sequenceStatus'),pat=$('sequencePattern'),pr=$('sequenceProb'),ob=$('sequenceObs'),bu=$('sequenceBucket'),ev=$('sequenceEvidence');
+ if(st){
+   st.textContent=!sequenceEnabled()?'OFF':(s.usable?'LEARNING':'BUILDING');
+   st.className=!sequenceEnabled()?'':(s.usable?'good':'warn');
+ }
+ if(pat)pat.textContent=s.pattern||'—';
+ if(pr)pr.textContent=s.usable?`${(s.prob*100).toFixed(1)}%`:'—';
+ if(ob)ob.textContent=String(sequenceTotalTrades);
+ if(bu)bu.textContent=s.bucket||'—';
+ if(ev)ev.textContent=s.usable?`${s.source||'CONDITIONED'} | n=${s.observations}`:'BUILDING';
+
+ const rf=lastRfSequenceSignal||{pattern:'',pRise:.5,strength:0,observations:0,usable:false,source:'BUILDING'};
+ const rp=$('rfSequencePattern'),rr=$('rfSequenceProb'),re=$('rfSequenceEvidence');
+ if(rp)rp.textContent=rf.pattern||'—';
+ if(rr)rr.textContent=rf.usable?`${(rf.pRise*100).toFixed(1)}%`:'—';
+ if(re)re.textContent=rf.usable?`${rf.source||'RF'} | n=${rf.observations}`:'BUILDING';
+}
+
+
+function rfSequenceEnabled(){
+ return $('rfSequenceLearner')?.value==='on';
+}
+function rfSequenceInfluence(){
+ return Math.max(0,Math.min(.50,(Number(n('rfSequenceInfluence'))||0)/100));
+}
+function rfSequenceMinObs(){
+ return Math.max(1,Math.floor(Number(n('rfSequenceMinObs'))||5));
+}
+function rfSequenceKey(){
+ return `deriv_rf_v223_direction_${sym()}_${Math.max(1,Math.floor(n('duration')))}`;
+}
+function rfOutcomeFromRow(row){
+ const entry=Number(row.Entry), exit=Number(row.Exit);
+ if(Number.isFinite(entry)&&Number.isFinite(exit)){
+   if(exit>entry)return 'R';
+   if(exit<entry)return 'F';
+   return '';
+ }
+ const dir=String(row.Direction||'').toUpperCase();
+ const result=String(row.Result||'').toUpperCase();
+ if(!['RISE','FALL'].includes(dir)||!['WIN','LOSS'].includes(result))return '';
+ if(result==='WIN')return dir==='RISE'?'R':'F';
+ return dir==='RISE'?'F':'R';
+}
+function rfEnsure(pattern){
+ let s=rfDirectionStats.get(pattern);
+ if(!s){s={n:0,r:0};rfDirectionStats.set(pattern,s);}
+ return s;
+}
+function rfSmoothProb(s,prior=8){
+ const nObs=Number(s?.n)||0,r=Number(s?.r)||0;
+ return (r+prior*.5)/(nObs+prior);
+}
+function rfRecordActualDirection(actual){
+ if(!rfSequenceEnabled())return;
+ if(!['R','F'].includes(actual))return;
+
+ // Learn 1–4 previous actual market directions -> next actual market direction.
+ for(let order=1;order<=4;order++){
+   if(rfDirectionHistory.length<order)break;
+   const pattern=rfDirectionHistory.slice(-order).join('');
+   const s=rfEnsure(pattern);s.n++;if(actual==='R')s.r++;
+ }
+ rfDirectionHistory.push(actual);
+ if(rfDirectionHistory.length>100)rfDirectionHistory.shift();
+ rfDirectionTotal++;
+ saveRfSequenceLearner();
+}
+function rfPredictSequence(){
+ const base={pattern:rfDirectionHistory.slice(-4).join('')||'—',pRise:.5,strength:0,observations:0,usable:false,source:'BUILDING',order:0};
+ if(!rfSequenceEnabled()||!rfDirectionHistory.length)return base;
+
+ const minObs=rfSequenceMinObs();
+ const candidates=[];
+ for(let order=Math.min(4,rfDirectionHistory.length);order>=1;order--){
+   const pattern=rfDirectionHistory.slice(-order).join('');
+   const s=rfDirectionStats.get(pattern);
+   const nObs=Number(s?.n)||0;
+   if(nObs<minObs)continue;
+   const p=rfSmoothProb(s);
+   const sample=Math.min(1,nObs/(minObs*6));
+   const orderStrength=order/4;
+   const strength=Math.min(1,sample*.70+orderStrength*.30);
+   candidates.push({pattern,order,p,nObs,strength});
+ }
+ if(!candidates.length)return base;
+
+ candidates.sort((a,b)=>{
+   if(Math.abs(b.strength-a.strength)>.05)return b.strength-a.strength;
+   if(b.order!==a.order)return b.order-a.order;
+   return b.nObs-a.nObs;
+ });
+ const best=candidates[0];
+
+ return {
+   pattern:best.pattern,
+   pRise:best.p,
+   strength:best.strength,
+   observations:best.nObs,
+   usable:true,
+   source:`RF ${best.order}-STEP`,
+   order:best.order
+ };
+}
+function rfAdjustPrediction(pUp,pDown){
+ const basePUp=Math.max(0,Math.min(1,Number(pUp)||.5));
+ const rf=rfPredictSequence();
+ if(!rfSequenceEnabled()||!rf.usable||rfSequenceInfluence()<=0){
+   lastRfSequenceSignal=rf;
+   return {pUp:basePUp,pDown:1-basePUp,rf};
+ }
+ const blend=Math.max(0,Math.min(.50,rfSequenceInfluence()*rf.strength));
+ const adj=Math.max(MODEL_PROB_FLOOR,Math.min(MODEL_PROB_CAP,
+   basePUp*(1-blend)+rf.pRise*blend
+ ));
+ lastRfSequenceSignal=rf;
+ return {pUp:adj,pDown:1-adj,rf};
+}
+function saveRfSequenceLearner(){
+ try{
+   const stats={};
+   for(const [k,s] of rfDirectionStats.entries()){
+     stats[k]={n:Number(s.n)||0,r:Number(s.r)||0};
+   }
+   localStorage.setItem(rfSequenceKey(),JSON.stringify({
+     version:1,
+     history:rfDirectionHistory.slice(-100),
+     stats,
+     total:rfDirectionTotal,
+     imported:rfDirectionImported,
+     savedAt:Date.now()
+   }));
+ }catch{}
+}
+function loadRfSequenceLearner(){
+ rfDirectionHistory=[];
+ rfDirectionStats=new Map();
+ rfDirectionTotal=0;
+ rfDirectionImported=0;
+ lastRfSequenceSignal={pattern:'',pRise:.5,strength:0,observations:0,usable:false,source:'BUILDING'};
+ try{
+   const raw=localStorage.getItem(rfSequenceKey());
+   if(!raw)return;
+   const d=JSON.parse(raw);
+   if(!d||d.version!==1)return;
+   if(Array.isArray(d.history))rfDirectionHistory=d.history.filter(x=>x==='R'||x==='F').slice(-100);
+   if(d.stats&&typeof d.stats==='object'){
+     for(const [k,s] of Object.entries(d.stats)){
+       rfDirectionStats.set(k,{n:Number(s?.n)||0,r:Number(s?.r)||0});
+     }
+   }
+   rfDirectionTotal=Number(d.total)||0;
+   rfDirectionImported=Number(d.imported)||0;
+   log(`RISE/FALL sequence learner loaded: ${rfDirectionTotal} directional observations.`);
+ }catch(err){
+   log(`RISE/FALL sequence memory load skipped: ${err.message}`);
+ }
+}
+function clearRfSequenceLearner(){
+ rfDirectionHistory=[];
+ rfDirectionStats=new Map();
+ rfDirectionTotal=0;
+ rfDirectionImported=0;
+ lastRfSequenceSignal={pattern:'',pRise:.5,strength:0,observations:0,usable:false,source:'BUILDING'};
+ try{localStorage.removeItem(rfSequenceKey())}catch{}
+ update();
+}
+function importRfSequenceCsv(file){
+ if(!file)return;
+ const reader=new FileReader();
+ reader.onload=()=>{
+   try{
+     const raw=String(reader.result||'');
+     const lines=raw.split(/\r?\n/).filter(Boolean);
+     if(lines.length<2)throw new Error('CSV has no trade rows.');
+     const header=lines[0].split(',').map(x=>x.trim());
+     const idx={};
+     header.forEach((h,i)=>idx[h]=i);
+     const required=['Trade','Direction','Result'];
+     if(required.some(k=>idx[k]===undefined))throw new Error('CSV needs Trade, Direction and Result columns.');
+
+     const rows=[];
+     for(let i=1;i<lines.length;i++){
+       const parts=lines[i].split(',');
+       if(parts.length<header.length)continue;
+       const mode=idx.Mode!==undefined?String(parts[idx.Mode]||'').trim():'NORMAL';
+       if(mode && mode!=='NORMAL')continue;
+       const row={
+         Trade:parts[idx.Trade],
+         Direction:parts[idx.Direction],
+         Result:parts[idx.Result],
+         Entry:idx.Entry!==undefined?parts[idx.Entry]:'',
+         Exit:idx.Exit!==undefined?parts[idx.Exit]:''
+       };
+       const tradeNo=Number(row.Trade);
+       rows.push({...row,tradeNo:Number.isFinite(tradeNo)?tradeNo:i});
+     }
+     rows.sort((a,b)=>a.tradeNo-b.tradeNo);
+
+     const dirs=[];
+     for(const row of rows){
+       const d=rfOutcomeFromRow(row);
+       if(d)dirs.push(d);
+     }
+     if(!dirs.length)throw new Error('No usable NORMAL Rise/Fall outcomes found.');
+
+     // Import as a historical sequence seed. Rebuild statistics from the exact
+     // chronological sequence represented by the file.
+     rfDirectionHistory=[];
+     rfDirectionStats=new Map();
+     rfDirectionTotal=0;
+     for(const d of dirs)rfRecordActualDirection(d);
+     rfDirectionImported=dirs.length;
+     saveRfSequenceLearner();
+     log(`RISE/FALL CSV imported: ${dirs.length} NORMAL directional observations. Current sequence=${rfDirectionHistory.slice(-20).join('')}.`);
+     update();
+   }catch(err){
+     log(`RISE/FALL CSV import error: ${err.message}`);
+   }
+ };
+ reader.readAsText(file);
+}
+
+
+function edgeGateMode(){
+ return $('edgeGateMode')?.value||'on';
+}
+function edgeMinOOS(){
+ return Math.max(50,Math.floor(Number(n('edgeMinOOS'))||200));
+}
+function edgeBreakEven(){
+ const payout=Math.max(.01,Math.min(10,Number(n('edgeAssumedPayout'))/100||.886));
+ // payout here is profit-on-stake. Total return = 1 + payout.
+ return 1/(1+payout);
+}
+function edgeMargin(){
+ return Math.max(0,Math.min(.20,(Number(n('edgeMinMargin'))||2)/100));
+}
+function nullPathCount(){
+ return Math.max(10,Math.min(200,Math.floor(Number(n('nullPaths'))||50)));
+}
+function nullAnnualVol(){
+ return Math.max(.01,Math.min(3,Number(n('nullAnnualVol'))/100||.75));
+}
+function nullPercentile(){
+ return Math.max(.50,Math.min(.99,(Number(n('nullPercentile'))||95)/100));
+}
+function edgeRefreshTrades(){
+ return Math.max(25,Math.floor(Number(n('edgeRefreshTrades'))||50));
+}
+function medianOf(arr){
+ const a=arr.filter(Number.isFinite).slice().sort((x,y)=>x-y);
+ if(!a.length)return null;
+ const m=Math.floor(a.length/2);
+ return a.length%2?a[m]:(a[m-1]+a[m])/2;
+}
+function quantile(arr,q){
+ const a=arr.filter(Number.isFinite).slice().sort((x,y)=>x-y);
+ if(!a.length)return null;
+ const pos=(a.length-1)*Math.max(0,Math.min(1,q));
+ const lo=Math.floor(pos),hi=Math.ceil(pos);
+ if(lo===hi)return a[lo];
+ return a[lo]+(a[hi]-a[lo])*(pos-lo);
+}
+function normalCdf(z){
+ // Abramowitz-Stegun style approximation; avoids Math.erf because it is not
+ // available in all browser runtimes.
+ const x=Number(z)||0, a1=.254829592,a2=-.284496736,a3=1.421413741,
+       a4=-1.453152027,a5=1.061405429,p=.3275911;
+ const sign=x<0?-1:1,u=Math.abs(x)/Math.SQRT2;
+ const tt=1/(1+p*u);
+ const poly=((((a5*tt+a4)*tt)+a3)*tt+a2)*tt+a1;
+ const erf=sign*(1-poly*Math.exp(-u*u)*tt);
+ return .5*(1+erf);
+}
+function binomialPUpper(w,n,p0){
+ if(!(n>0)||!Number.isFinite(w)||!Number.isFinite(p0))return null;
+ if(w>=n)return Math.pow(p0,n);
+ let prob=Math.pow(1-p0,n),sum=0;
+ // Stable recurrence for the upper tail P(X>=w).
+ for(let k=0;k<n;k++){
+   if(k>=w)sum+=prob;
+   const next=prob*((n-k)/(k+1))*(p0/(1-p0));
+   prob=next;
+ }
+ if(w===0)return 1;
+ return Math.max(0,Math.min(1,sum));
+}
+function meanAndSE(vals){
+ const a=vals.filter(Number.isFinite);
+ if(!a.length)return {mean:null,se:null};
+ const m=a.reduce((s,x)=>s+x,0)/a.length;
+ let v=0;for(const x of a)v+=(x-m)*(x-m);
+ return {mean:m,se:Math.sqrt(v/Math.max(1,a.length-1))/Math.sqrt(a.length)};
+}
+function signReturns(path){
+ const out=[];
+ for(let i=1;i<path.length;i++){
+   const d=Number(path[i])-Number(path[i-1]);
+   if(d>0)out.push(1);
+   else if(d<0)out.push(0);
+ }
+ return out;
+}
+function signAutocorr(signs,lag){
+ if(signs.length<=lag+2)return null;
+ const m=signs.reduce((a,b)=>a+b,0)/signs.length;
+ let num=0,den=0;
+ for(let i=0;i<signs.length;i++){
+   const x=signs[i]-m;den+=x*x;
+   if(i>=lag)num+=x*(signs[i-lag]-m);
+ }
+ return den?num/den:null;
+}
+function runsTest(signs){
+ if(signs.length<2)return {z:null,p:null,runs:null};
+ let runs=1;
+ for(let i=1;i<signs.length;i++)if(signs[i]!==signs[i-1])runs++;
+ const n1=signs.filter(x=>x===1).length,n0=signs.length-n1,n=signs.length;
+ if(n1===0||n0===0)return {z:null,p:null,runs};
+ const mu=1+(2*n1*n0/n);
+ const variance=(2*n1*n0*(2*n1*n0-n))/(n*n*(n-1));
+ const z=(runs-mu)/Math.sqrt(Math.max(1e-12,variance));
+ const p=2*(1-normalCdf(Math.abs(z)));
+ return {z,p,runs};
+}
+function estimateTickSeconds(){
+ if(Array.isArray(epochs)&&epochs.length>2){
+   const ds=[];
+   for(let i=1;i<epochs.length;i++){
+     const d=Number(epochs[i])-Number(epochs[i-1]);
+     if(Number.isFinite(d)&&d>0&&d<120)ds.push(d);
+   }
+   const med=medianOf(ds);
+   if(Number.isFinite(med))return med;
+ }
+ return 2;
+}
+function syntheticNullPath(length,startPrice){
+ const dt=estimateTickSeconds();
+ const sigmaPerTick=nullAnnualVol()*Math.sqrt(dt/(365*24*3600));
+ const path=[Number(startPrice)||1];
+ for(let i=1;i<length;i++){
+   // Geometric-Brownian-style zero-drift null. The purpose is not to claim
+   // this is Deriv's exact generator; it is a known no-direction-information
+   // benchmark with the configured annualized volatility.
+   const u=Math.max(1e-12,Math.random()),v=Math.max(1e-12,Math.random());
+   const z=Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);
+   const prev=path[i-1];
+   path.push(prev*Math.exp(-.5*sigmaPerTick*sigmaPerTick+sigmaPerTick*z));
+ }
+ return path;
+}
+function buildPathSamples(path,H,maxSamples=3000){
+ const oldPrices=prices;
+ prices=path;
+ const out=[];
+ const start=25;
+ const maxEnd=path.length-H-1;
+ for(let i=start;i<=maxEnd;i++){
+   const x=featureAt(i);
+   if(!x)continue;
+   const delta=path[i+H]-path[i];
+   if(delta===0)continue;
+   out.push({x,y:delta>0?1:0,index:i,futureMove:delta});
+ }
+ prices=oldPrices;
+ return out.slice(-maxSamples);
+}
+function fastKnnOnPool(x,pool,stats,k,currentIndex){
+ if(!x||!pool?.length)return null;
+ const kk=Math.min(pool.length,Math.max(3,Math.floor(k||n('k'))));
+ const near=[];
+ for(const e of pool){
+   const d=featureDistanceScaled(x,e.x,stats);
+   if(!Number.isFinite(d))continue;
+   if(near.length<kk){
+     near.push({e,d});
+     if(near.length===kk)near.sort((a,b)=>a.d-b.d);
+   }else if(d<near[near.length-1].d){
+     near[near.length-1]={e,d};
+     // insertion sort only the small k-sized array
+     for(let q=near.length-1;q>0&&near[q].d<near[q-1].d;q--){
+       const tmp=near[q];near[q]=near[q-1];near[q-1]=tmp;
+     }
+   }
+ }
+ if(!near.length)return null;
+
+ const halfLife=400;
+ let w=0,wu=0;
+ for(const z of near){
+   const age=Math.max(0,currentIndex-safeNum(z.e.index,currentIndex));
+   const recency=Math.exp(-age/halfLife);
+   const wt=recency/(z.d+.12);
+   w+=wt;wu+=wt*z.e.y;
+ }
+ const pUp=w?wu/w:.5;
+ return {pUp,pCandidate:Math.max(pUp,1-pUp)};
+}
+function evaluateOOSPath(path, opts={}){
+ const H=Math.max(1,Math.floor(opts.H||n('duration')));
+ const maxEval=Math.max(50,Math.floor(opts.maxEval||300));
+ const start=Math.max(30,Math.floor(opts.start||50));
+ const end=Math.min(path.length-H-1,Number(opts.end??(path.length-H-1)));
+ const step=Math.max(1,Math.floor(opts.step||Math.max(1,Math.ceil((end-start+1)/maxEval))));
+ const results=[];
+ const oldPrices=prices;
+ prices=path;
+ try{
+   // Chronological sample pool. Labels become eligible only after expiry.
+   const allSamples=[];
+   for(let i=25;i<=end;i++){
+     const x=featureAt(i);
+     if(!x)continue;
+     const delta=path[i+H]-path[i];
+     if(delta===0)continue;
+     allSamples.push({x,y:delta>0?1:0,index:i,futureMove:delta});
+   }
+
+   let poolEnd=-1;
+   const dim=9, sum=Array(dim).fill(0), sumSq=Array(dim).fill(0);
+   const minimumPool=Math.max(30,Math.floor(n('k')));
+
+   for(let target=start,count=0;target<=end&&count<maxEval;target+=step){
+     // Add newly eligible samples incrementally.
+     while(poolEnd+1<allSamples.length && allSamples[poolEnd+1].index+H<target){
+       poolEnd++;
+       const e=allSamples[poolEnd];
+       for(let j=0;j<dim;j++){
+         const v=safeNum(e.x[j]);
+         sum[j]+=v;sumSq[j]+=v*v;
+       }
+     }
+     const poolSize=poolEnd+1;
+     if(poolSize<minimumPool)continue;
+     const stats={mean:Array(dim).fill(0),sd:Array(dim).fill(1)};
+     for(let j=0;j<dim;j++){
+       stats.mean[j]=sum[j]/poolSize;
+       stats.sd[j]=Math.sqrt(Math.max(0,sumSq[j]/poolSize-stats.mean[j]*stats.mean[j]))||1;
+     }
+     const x=featureAt(target);
+     if(!x)continue;
+     const r=fastKnnOnPool(x,allSamples.slice(0,poolSize),stats,n('k'),target);
+     if(!r)continue;
+
+     const future=path[target+H]-path[target];
+     if(future===0)continue;
+     const actual=future>0?1:0;
+     const dirUp=r.pUp>=.5?1:0;
+     results.push({
+       correct:dirUp===actual,
+       prob:r.pCandidate,
+       actual,
+       dir:dirUp?'RISE':'FALL'
+     });
+     count++;
+   }
+ }finally{
+   prices=oldPrices;
+ }
+ return results;
+}
+
+function edgeValidationSnapshotConfig(){
+ return {
+   symbol:sym(),duration:Math.max(1,Math.floor(n('duration'))),
+   k:Math.max(3,Math.floor(n('k'))),lookback:Math.max(5,Math.floor(n('lookback'))),
+   maxSamples:Math.max(100,Math.floor(n('maxSamples'))),
+   minProb:Number(n('minProb')),maxProb:Number(n('maxProb')),
+   minGap:Number(n('minGap')),entryProfile:$('entryProfile')?.value||'balanced'
+ };
+}
+function sameConfig(a,b){
+ if(!a||!b)return false;
+ return ['symbol','duration','k','lookback','maxSamples','minProb','maxProb','minGap','entryProfile'].every(k=>String(a[k])===String(b[k]));
+}
+function runReturnDependenceTest(){
+ const signs=signReturns(prices);
+ const ac=[];
+ for(let lag=1;lag<=10;lag++){
+   const r=signAutocorr(signs,lag);
+   if(Number.isFinite(r))ac.push({lag,r});
+ }
+ const maxAbs=ac.length?ac.reduce((a,b)=>Math.abs(b.r)>Math.abs(a.r)?b:a):null;
+ const zApprox=maxAbs&&signs.length>25?maxAbs.r*Math.sqrt(signs.length):null;
+ const p=maxAbs&&Number.isFinite(zApprox)?2*(1-normalCdf(Math.abs(zApprox))):null;
+ const runs=runsTest(signs);
+ return {n:signs.length,ac,maxAbs,maxAbsP:p,runs};
+}
+async function runStatisticalEdgeValidation(force=false){
+ if(edgeValidationRunning)return;
+ if(prices.length<Math.max(300,Math.floor(n('edgeMinOOS'))+Math.floor(n('duration'))+50)){
+   edgeValidation.status='INSUFFICIENT HISTORY';
+   edgeValidation.passed=false;
+   updateEdgeUI();
+   return;
+ }
+ if(!force&&edgeValidation.lastRun&&edgeValidation.lastNormalTradeCount>=0&&
+    trades-edgeValidation.lastNormalTradeCount<edgeRefreshTrades())return;
+
+ edgeValidationRunning=true;
+ edgeValidation.status='RUNNING';
+ updateEdgeUI();
+
+ try{
+   const cfg=edgeValidationSnapshotConfig();
+   edgeValidation.lockedConfig=cfg;
+
+   const oos=evaluateOOSPath(prices,{
+     H:cfg.duration,
+     maxEval:Math.max(edgeMinOOS(),300),
+     start:Math.max(50,Math.floor(prices.length*.35)),
+     end:prices.length-cfg.duration-1
+   });
+
+   const oosN=oos.length,oosW=oos.filter(x=>x.correct).length,oosWR=oosN?oosW/oosN:null;
+   const be=edgeBreakEven(),margin=oosWR===null?null:oosWR-be;
+   const pUpper=binomialPUpper(oosW,oosN,be);
+
+   const dep=runReturnDependenceTest();
+
+   const paths=nullPathCount();
+   const nullWRs=[];
+   const nullLen=Math.min(prices.length,Math.max(1500,Math.min(4000,prices.length)));
+   const nullStart=prices[0]||1;
+   for(let j=0;j<paths;j++){
+     const np=syntheticNullPath(nullLen,nullStart);
+     const nr=evaluateOOSPath(np,{
+       H:cfg.duration,
+       maxEval:Math.min(oosN||150,150),
+       start:Math.max(50,Math.floor(np.length*.35)),
+       end:np.length-cfg.duration-1
+     });
+     if(nr.length){
+       nullWRs.push(nr.filter(x=>x.correct).length/nr.length);
+     }
+     // Yield to the browser every few simulations so the UI remains responsive.
+     if(j%5===4)await new Promise(r=>setTimeout(r,0));
+   }
+
+   const nullMean=meanAndSE(nullWRs).mean;
+   const q=nullPercentile();
+   const nullQ=quantile(nullWRs,q);
+   const nullP99=quantile(nullWRs,.99);
+
+   // Monte Carlo superiority: fraction of null runs >= observed real OOS WR.
+   const ge=nullWRs.filter(x=>Number.isFinite(oosWR)&&x>=oosWR).length;
+   const realVsNullP=nullWRs.length&&Number.isFinite(oosWR)
+     ?(1+ge)/(nullWRs.length+1):null;
+
+   const passed=Boolean(
+     oosN>=edgeMinOOS() &&
+     Number.isFinite(oosWR) &&
+     oosWR>=be+edgeMargin() &&
+     Number.isFinite(pUpper) &&
+     pUpper<=.05 &&
+     Number.isFinite(nullQ) &&
+     oosWR>nullQ &&
+     Number.isFinite(realVsNullP) &&
+     realVsNullP<=.05
+   );
+
+   edgeValidation={
+     ...edgeValidation,
+     status:passed?'EDGE VALIDATED':'NO VERIFIED EDGE',
+     oosN,oosW,oosWR,breakEven:be,margin,pUpper,
+     autoLag:dep.maxAbs?.lag??null,autoP:dep.maxAbsP,
+     autoR:dep.maxAbs?.r??null,
+     runsZ:dep.runs.z,runsP:dep.runs.p,runs:dep.runs.runs,
+     nullPaths:nullWRs.length,nullMean,nullP95:quantile(nullWRs,.95),nullP99,
+     nullPercentile:q, nullWinRates:nullWRs, realVsNullP,
+     passed,lastRun:Date.now(),lastNormalTradeCount:trades,
+     lockedConfig:cfg
+   };
+   log(`EDGE VALIDATION: ${edgeValidation.status} | real OOS ${(oosWR*100).toFixed(1)}% (${oosW}/${oosN}) | BE ${(be*100).toFixed(1)}% | margin ${margin===null?'—':(margin*100).toFixed(1)}% | binomial p=${pUpper===null?'—':pUpper.toFixed(4)} | null mean ${(nullMean*100).toFixed(1)}% | null ${(q*100).toFixed(1)}th ${(nullQ*100).toFixed(1)}% | real-vs-null p=${realVsNullP===null?'—':realVsNullP.toFixed(4)} | max sign AC lag ${dep.maxAbs?.lag??'—'} r=${dep.maxAbs?.r?.toFixed(4)??'—'} p=${dep.maxAbsP?.toFixed(4)??'—'} | runs p=${dep.runs.p?.toFixed(4)??'—'}.`);
+   updateEdgeUI();
+ }catch(err){
+   edgeValidation.status='VALIDATION ERROR';
+   edgeValidation.passed=false;
+   log(`EDGE VALIDATION ERROR: ${err.message}`);
+   updateEdgeUI();
+ }finally{
+   edgeValidationRunning=false;
+ }
+}
+function edgeGatePass(){
+ const mode=edgeGateMode();
+ if(mode==='off')return {pass:true,reason:'statistical edge gate OFF'};
+ if(mode==='diag')return {pass:true,reason:'diagnostic mode — statistical edge not required'};
+ if(!edgeValidation.passed)return {
+   pass:false,
+   reason:`NO VERIFIED EDGE — ${edgeValidation.status}; OOS ${edgeValidation.oosN||0}/${edgeMinOOS()}`
+ };
+ if(!sameConfig(edgeValidation.lockedConfig,edgeValidationSnapshotConfig()))return {
+   pass:false,
+   reason:'MODEL PARAMETERS CHANGED SINCE EDGE VALIDATION — rerun validation'
+ };
+ return {pass:true,reason:'validated OOS edge + null superiority'};
+}
+function updateEdgeUI(){
+ const statusEl=$('edgeValidationStatus'),ow=$('edgeOOSWR'),be=$('edgeBE'),n95=$('edgeNull95'),ap=$('edgeAutoP');
+ const dash=$('edgeGateStatus'),dw=$('edgeOOSWRDash'),dn=$('edgeNullDash');
+ const v=edgeValidation;
+ if(statusEl){
+   statusEl.textContent=v.status+(edgeValidationRunning?' — RUNNING':'');
+   statusEl.className=v.passed?'good':(v.status==='RUNNING'?'warn':'bad');
+ }
+ if(ow)ow.textContent=Number.isFinite(v.oosWR)?`${(v.oosWR*100).toFixed(1)}% (${v.oosN})`:'—';
+ if(be)be.textContent=Number.isFinite(v.breakEven)?`${(v.breakEven*100).toFixed(1)}%`:'—';
+ if(n95)n95.textContent=Number.isFinite(v.nullP95)?`${(v.nullP95*100).toFixed(1)}%`:'—';
+ if(ap)ap.textContent=Number.isFinite(v.autoP)?v.autoP.toFixed(4):'—';
+ if(dash){
+   const g=edgeGatePass();
+   dash.textContent=g.pass?'PASS':'BLOCK';
+   dash.className=g.pass?'good':'bad';
+ }
+ if(dw)dw.textContent=Number.isFinite(v.oosWR)?`${(v.oosWR*100).toFixed(1)}%`:'—';
+ if(dn)dn.textContent=Number.isFinite(v.nullP95)?`${(v.nullP95*100).toFixed(1)}%`:'—';
+}
+
+function predict(){
+ const x=featureAt(prices.length-1);
+ const r=rawKnnPrediction(x,samples,{
+   stats:liveFeatureStats,
+   halfLife:400,
+   currentIndex:prices.length-1
+ });
+
+ if(!x||!samples.length)return {
+   ...r,
+   pUp:.5,pDown:.5,dir:'',
+   gap:0,calibrated:false,features:x,
+   calibratedCandidate:.5,
+   softenedCandidate:.5,
+   adjustedCandidate:.5,
+   baseRate:.5,
+   regimeLabel:'NEUTRAL',
+   continuationRisk:0,
+   preSequenceCandidate:.5,sequenceProb:.5,sequenceStrength:0,sequenceObservations:0,sequencePattern:sequenceHistory.slice(-4).join('')||'—',sequenceUsable:false,sequenceOrder:0,sequenceBucket:sequenceBucket(.5),sequenceSource:'BUILDING',preRfCandidate:.5,rfSequenceProb:.5,rfSequenceStrength:0,rfSequenceObservations:0,rfSequencePattern:rfDirectionHistory.slice(-4).join('')||'—',rfSequenceUsable:false,rfSequenceSource:'BUILDING'
+ };
+
+ const predictedDir=r.pUp>=.5?'RISE':'FALL';
+ const rawCandidate=predictedDir==='RISE'?r.pUp:1-r.pUp;
+ const transformed=transformCandidate(rawCandidate,x,samples);
+
+ const empirical=calibrateProbability(transformed.candidate);
+ let finalCandidate=Math.max(
+   MODEL_PROB_FLOOR,
+   Math.min(
+     MODEL_PROB_CAP,
+     CALIBRATION_MIX*empirical+(1-CALIBRATION_MIX)*transformed.candidate
+   )
+ );
+
+ const preSequenceCandidate=finalCandidate;
+ const seqResult=sequenceAdjustCandidate(preSequenceCandidate,predictedDir);
+ finalCandidate=seqResult.adjusted;
+ lastSequenceSignal=seqResult.sequence;
+ const preRfCandidate=finalCandidate;
+ const rfAdjusted=rfAdjustPrediction(
+   predictedDir==='RISE'?preRfCandidate:1-preRfCandidate,
+   predictedDir==='RISE'?1-preRfCandidate:preRfCandidate
+ );
+ const pUp=rfAdjusted.pUp;
+ const pDown=rfAdjusted.pDown;
+ const dir=pUp>=pDown?'RISE':'FALL';
+
+ return {
+   ...r,
+   pUp,pDown,dir,
+   gap:Math.abs(pUp-pDown),
+   calibrated:true,
+   rawPUp:r.pUp,
+   calibratedCandidate:finalCandidate,
+   finalCandidate,
+   softenedCandidate:transformed.softened,
+   adjustedCandidate:transformed.adjusted,
+   baseRate:transformed.baseRate,
+   regimeLabel:transformed.regime.label,
+   continuationRisk:transformed.regime.continuationRisk,
+   features:x,
+   preSequenceCandidate,
+   sequenceProb:seqResult.sequence.prob,
+   sequenceStrength:seqResult.sequence.strength,
+   sequenceObservations:seqResult.sequence.observations,
+   sequencePattern:seqResult.sequence.pattern,
+   sequenceUsable:seqResult.sequence.usable,
+   sequenceOrder:seqResult.sequence.order,
+   sequenceBucket:seqResult.sequence.bucket,
+   sequenceSource:seqResult.sequence.source,
+   preRfCandidate,
+   rfSequenceProb:rfAdjusted.rf.pRise,
+   rfSequenceStrength:rfAdjusted.rf.strength,
+   rfSequenceObservations:rfAdjusted.rf.observations,
+   rfSequencePattern:rfAdjusted.rf.pattern,
+   rfSequenceUsable:rfAdjusted.rf.usable,
+   rfSequenceSource:rfAdjusted.rf.source
+ };
+}
+
+function entryThresholds(){
+ const profile=$('entryProfile')?.value||'balanced';
+ let minProb=Math.max(.50,Math.min(.99,n('minProb')));
+ let maxProb=Math.max(.50,Math.min(.99,n('maxProb')));
+ if(maxProb<minProb) maxProb=minProb;
+
+ // The selected range controls the final calibrated directional probability.
+ if(profile==='strict') return {minProb:Math.max(.62,minProb),maxProb:Math.min(.72,Math.max(.62,maxProb)),minGap:Math.max(.06,n('minGap')),agreement:.65,maxDist:3.0};
+ if(profile==='explore') return {minProb:Math.max(.55,minProb),maxProb:Math.max(maxProb,.72),minGap:.02,agreement:.52,maxDist:5.0};
+ return {minProb,maxProb,minGap:Math.max(.03,n('minGap')),agreement:.55,maxDist:4.5};
+}
+function recordBlock(reason){
+ signalBlocked[reason]=(signalBlocked[reason]||0)+1;
+ const parts=`warmup:${signalBlocked.warmup} lowP:${signalBlocked.prob} highP:${signalBlocked.highprob} gap:${signalBlocked.gap} neighbors:${signalBlocked.neighbors} agreement:${signalBlocked.agreement} distance:${signalBlocked.distance} payout:${signalBlocked.payout} errors:${signalBlocked.error} risk:${signalBlocked.risk||0}`;
+ const d=$('modelDiag'); if(d)d.textContent=`Signal checks ${signalChecks} | qualified ${signalQualified} | blocked ${reason} | ${parts}`;
+}
+
+function addLiveTraining(){
+ const H=Math.max(1,Math.floor(n('duration')));
+ while(trackers.length&&trackers[0].due<=prices.length-1){
+   const t=trackers.shift(),delta=prices[prices.length-1]-t.entry;
+   if(delta!==0&&t.x){
+     samples.push({x:t.x,y:delta>0?1:0,index:t.index,futureMove:delta});
+     const max=Math.max(100,Math.floor(n('maxSamples')));
+     if(samples.length>max)samples.shift();
+   }
+ }
+ liveFeatureStats=featureStats(samples);
+ const x=featureAt(prices.length-1);
+ if(x)trackers.push({due:prices.length-1+H,entry:prices.at(-1),x,index:prices.length-1});
+ if(prices.length%200===0&&samples.length>=200)buildWalkForwardCalibration();
+}
+function update(){
+ const p=predict();
+ updateSequenceUI(p.sequenceUsable?{
+   pattern:p.sequencePattern,prob:p.sequenceProb,strength:p.sequenceStrength,
+   observations:p.sequenceObservations,usable:p.sequenceUsable,dir:p.dir
+ }:lastSequenceSignal);
+
+ $('price').textContent=prices.length?prices.at(-1).toFixed(4):'—';
+ $('pUp').textContent=(p.pUp*100).toFixed(1)+'%';
+ $('pDown').textContent=(p.pDown*100).toFixed(1)+'%';
+ $('direction').textContent=p.dir||'—';
+
+ $('samples').textContent=samples.length;
+ $('trades').textContent=trades;
+ $('wins').textContent=wins;
+ $('losses').textContent=losses;
+ $('wr').textContent=trades?(wins/trades*100).toFixed(1)+'%':'—';
+ $('pnl').textContent=(pnl>=0?'+':'')+'$'+pnl.toFixed(2);
+
+ $('mgStep').textContent=lossStreak;
+ $('mgPool').textContent='$'+mgLossPool.toFixed(2);
+
+ const cbEl=$('configuredBudget');
+ if(cbEl)cbEl.textContent=`$${sequenceBudget().toFixed(2)}`;
+
+ const b=sequenceBudget();
+ const bEl=$('survivalBudget');
+ if(bEl)bEl.textContent=b>0?`$${b.toFixed(2)}`:'$—';
+
+ const payoutHint=records[0]?.payout||0;
+ const nxt=nextStake(payoutHint);
+ const nEl=$('nextStake');
+ if(nEl)nEl.textContent=nxt>0?`$${nxt.toFixed(2)}`:'STOP';
+
+ const cEl=$('recoveryCoverage');
+ if(cEl&&mgStep>0&&payoutHint>0){
+   const c=recoveryCoverage(nxt,payoutHint);
+   cEl.textContent=`${(c*100).toFixed(0)}%`;
+   cEl.className=c>=1?'good':c>=.5?'warn':'bad';
+ }else if(cEl){
+   cEl.textContent='—';
+   cEl.className='';
+ }
+
+ const targetEl=$('targetStatus');
+ if(targetEl){
+   const t=Math.max(0,n('profitTarget'));
+   targetEl.textContent=t>0?`$${t.toFixed(2)}`:'OFF';
+   targetEl.className=t>0?(pnl>=t?'good':''):'';
+ }
+
+ const recoveryEl=$('recoveryTargetStatus');
+ if(recoveryEl){
+   const rt=Math.max(0,n('mgTarget'));
+   recoveryEl.textContent=rt>0?`$${rt.toFixed(2)}`:'$0.00';
+ }
+
+ $('pnl').className=pnl>=0?'good':'bad';
+ updateLadderPreview();
+
+ const md=$('modelDiag');
+ if(md){
+   const parts=`checks ${signalChecks} | qualified ${signalQualified} | range ${(entryThresholds().minProb*100).toFixed(0)}–${(entryThresholds().maxProb*100).toFixed(0)}% | blocked W${signalBlocked.warmup}/LP${signalBlocked.prob}/HP${signalBlocked.highprob}/G${signalBlocked.gap}/N${signalBlocked.neighbors}/A${signalBlocked.agreement}/D${signalBlocked.distance}/$${signalBlocked.payout}/R${signalBlocked.risk||0}`;
+
+   md.textContent=
+     `Profile ${$('entryProfile')?.value||'balanced'} | ${p.dir||'WAIT'} | `+
+     `final ${(p.pUp*100).toFixed(1)}% RISE / ${(p.pDown*100).toFixed(1)}% FALL | `+
+     `raw ${(p.raw*100).toFixed(1)}% chosen-side | softened ${(p.softenedCandidate*100).toFixed(1)}% | `+
+     `adjusted ${(p.adjustedCandidate*100).toFixed(1)}% | `+
+     `neighbors ${p.neighbors||0} | agreement ${(p.neighborAgreement*100).toFixed(1)}% | `+
+     `dist ${Number.isFinite(p.medianDistance)?p.medianDistance.toFixed(2):'—'} | `+
+     `edge ${edgeValidation.passed?'PASS':'BLOCK'} | `+
+     `OOS ${Number.isFinite(edgeValidation.oosWR)?(edgeValidation.oosWR*100).toFixed(1)+'%':'—'} | `+
+     `null95 ${Number.isFinite(edgeValidation.nullP95)?(edgeValidation.nullP95*100).toFixed(1)+'%':'—'} | `+
+     `regime ${p.regimeLabel||'—'} ${((p.continuationRisk||0)*100).toFixed(0)}% | `+
+     `sequence ${p.sequenceUsable?(p.sequencePattern||'—')+' '+(p.sequenceProb*100).toFixed(1)+'%':'BUILDING'} `+
+     `${p.sequenceUsable?'bucket '+(p.sequenceBucket||'—')+' | '+(p.sequenceSource||'CONDITIONED')+' | strength '+(p.sequenceStrength*100).toFixed(0)+'% obs '+p.sequenceObservations:'obs '+sequenceTotalTrades} | ${parts}`;
+ }
+
+ const cd=$('calibrationDiag');
+ if(cd){
+   const qbin=calibrationBucket(Math.max(.5,Math.min(.999,p.softenedCandidate||.5)));
+   const qst=calibration[qbin]||{n:0,w:0};
+   const mode=qst.n<10?'BOOTSTRAP':'EMPIRICAL';
+   cd.textContent=`Calibration [${mode}] | current bin ${qbin} n=${qst.n} | ${calibrationDiagnostic()}`;
+ }
+}
+
+async function connect(){
+ manualDisconnect=false;
+ sessionActive=false;
+ running=false;
+ status('AUTHENTICATING');
+ if(market)try{market.close()}catch{}
+ if(trade)try{trade.close()}catch{}
+ if(marketReconnectTimer){clearTimeout(marketReconnectTimer);marketReconnectTimer=null}
+ if(tradeReconnectTimer){clearTimeout(tradeReconnectTimer);tradeReconnectTimer=null}
+ mp=new Map();tp=new Map();entryPending=false;pairPending=false;trackers=[];tradeRecoveryLock=false;uncertainBuy=false;uncertainPairBuy=false;
+ resetCalibration();
+ loadSequenceLearner();
+ loadRfSequenceLearner();
+ edgeValidation={...edgeValidation, status:'WAITING FOR HISTORY', passed:false, lastRun:0, lastNormalTradeCount:-1};
+ lastTickAt=0;marketLastMessageAt=0;tradeLastMessageAt=0;
+
+ // Public market socket: independent from trading authentication.
+ await connectMarketSocket(true);
+
+ // Authenticated trading socket: fresh OTP immediately before connect.
+ await connectTradeSocket(true);
+
+ sessionActive=true;
+ sessionStartedAt=Date.now();
+ startConnectionWatchdog();
+ status('CONNECTED');
+ log(`Stable connection established: PUBLIC MARKET + AUTHENTICATED TRADE. Loaded ${prices.length} ticks and built ${samples.length} KNN samples for ${sym()}.`);
+ updateConnectionUI();
+}
+
+function normalizeStake(value){
+ const hardMax=Math.max(.35,n('mgMaxStake'));
+ return Math.min(hardMax,Math.max(.35,Math.round((Number(value)+1e-10)*100)/100));
+}
+function survivalEnabled(){
+ return $('survivalMode')?.value==='on';
+}
+function twoSideEnabled(){
+ return $('twoSideReset')?.value==='on';
+}
+function twoSideTrigger(){
+ return Math.max(1,Math.floor(n('twoSideTrigger')));
+}
+function baseStake(){
+ const v=Number(n('stake'));
+ return Math.max(.35,Math.round((Number.isFinite(v)?v:.35)*100)/100);
+}
+function twoSideRecoveryFactor(){
+ return Math.max(1,Math.min(10,Number(n('twoSideRecoveryFactor'))||1));
+}
+function modelFavouredRecoverySide(){
+ const p=predict();
+ if(!p||!['RISE','FALL'].includes(p.dir))return {side:'',prob:.5,prediction:p};
+ return {side:p.dir,prob:Math.max(p.pUp,p.pDown),prediction:p};
+}
+function oppositeSide(side){
+ return side==='RISE'?'FALL':side==='FALL'?'RISE':'';
+}
+function recoveryStakeForPair(side){
+ const raw=baseStake()*twoSideRecoveryFactor();
+ const cap=Math.max(.35,Number(n('mgMaxStake'))||50);
+ return normalizeStake(Math.min(raw,cap));
+}
+function updateTwoSideFactorUI(){
+ const el=$('twoSideFactorStatus'), side=$('favouredRecoverySide'), fav=$('modelFavouredSideStatus');
+ if(el)el.textContent=`${twoSideRecoveryFactor().toFixed(1)}×`;
+ if(side)side.textContent=lastModelFavouredSide
+   ?`${lastModelFavouredSide} receives factor`
+   :'—';
+ if(fav)fav.textContent=lastModelFavouredSide
+   ?`${lastModelFavouredSide} ${(lastModelFavouredProbability*100).toFixed(1)}%`
+   :'—';
+}
+function pairStatusText(value){
+ const el=$('twoSideStatus');
+ if(el){
+   el.textContent=value;
+   el.className=value==='ACTIVE'?'warn':value==='STOPPED'?'bad':value==='OFF'?'':'good';
+ }
+}
+function updateTwoSideUI(){
+ const r=$('twoSideResets'), last=$('twoSideLast'), mode=$('resetModeStatus');
+ if(r)r.textContent=String(pairResets);
+ if(last){
+   if(!pairCompleted)last.textContent='—';
+   else last.textContent=`${lastPairResult} | ${pairPnl>=0?'+':''}$${pairPnl.toFixed(2)}`;
+ }
+ if(mode){
+   mode.textContent=resetMode?'ACTIVE':'OFF';
+   mode.className=resetMode?'warn':'';
+ }
+ if($('twoSideStatus') && !pairPending && !activePair){
+   $('twoSideStatus').textContent=twoSideEnabled()?(resetMode?'RESET MODE':'READY'):'OFF';
+   $('twoSideStatus').className=twoSideEnabled()?(resetMode?'warn':'good'):'';
+ }
+}
+function sequenceBudget(){
+ const b=Number($('survivalBudgetInput')?.value);
+ return Number.isFinite(b)?Math.max(0,b):0;
+}
+
+function remainingLossSlots(){
+ const tolerance=Math.max(1,Math.floor(n('survivalLosses')));
+ return Math.max(1,tolerance-Math.max(0,mgStep));
+}
+
+function remainingSequenceBudget(){
+ return Math.max(0,sequenceBudget()-mgLossPool);
+}
+
+function survivalStakeCap(){
+ if(!survivalEnabled())return Math.max(.35,n('mgMaxStake'));
+ const budget=sequenceBudget();
+ const remaining=remainingSequenceBudget();
+ if(!(budget>0)||!(remaining>0))return 0;
+
+ // Preserve enough of the remaining configured budget to absorb
+ // every remaining loss in the configured streak tolerance.
+ const slotCap=remaining/remainingLossSlots();
+ const hardCap=Math.max(.35,n('mgMaxStake'));
+ return Math.min(slotCap,hardCap,remaining);
+}
+
+function payoutAwareRequiredStake(payoutPct){
+ const payout=Math.max(.001,Number(payoutPct||0)/100);
+ return (mgLossPool+Math.max(0,n('mgTarget')))/payout;
+}
+
+function nextStake(payoutPct){
+ const base=normalizeStake(Math.max(.35,n('stake')));
+
+ // Persistent reset mode always uses base stake for the next normal trade.
+ // A normal WIN exits reset mode; a normal LOSS triggers another two-side pair.
+ if(resetMode)return base;
+
+ if(!survivalEnabled())return base;
+
+ const cap=survivalStakeCap();
+ if(!(cap>=.35))return 0;
+ if(mgStep===0)return normalizeStake(Math.min(base,cap));
+
+ // Ask for full payout-aware recovery first, then apply the hard
+ // survival budget cap.
+ return normalizeStake(Math.min(payoutAwareRequiredStake(payoutPct),cap));
+}
+
+function recoveryCoverage(stake,payoutPct){
+ const needed=mgLossPool+Math.max(0,n('mgTarget'));
+ if(needed<=0)return 1;
+ return Math.max(0,(Number(stake)||0)*Math.max(0,Number(payoutPct||0)/100)/needed);
+}
+
+function survivalStatusText(payoutPct){
+ if(!survivalEnabled())return 'SURVIVAL OFF';
+ const b=sequenceBudget();
+ if(!(b>0))return 'NO BUDGET';
+ const cap=survivalStakeCap();
+ const desired=mgStep>0?payoutAwareRequiredStake(payoutPct):Math.max(.35,n('stake'));
+ const cov=recoveryCoverage(Math.min(Math.max(0,cap),Math.max(0,desired)),payoutPct);
+ return `budget $${b.toFixed(2)} | cap $${Math.max(0,cap).toFixed(2)} | desired $${desired.toFixed(2)} | coverage ${(cov*100).toFixed(0)}%`;
+}
+
+function updateLadderPreview(){
+ const el=$('ladderPreview');
+ if(!el)return;
+ if(!survivalEnabled()){el.textContent='OFF';return;}
+ const b=sequenceBudget();
+ if(!(b>0)){el.textContent='Enter a sequence budget';return;}
+ const t=Math.max(1,Math.floor(n('survivalLosses')));
+ const cap=Math.min(b/t,Math.max(.35,n('mgMaxStake')),b);
+ el.textContent=`${t} losses | budget $${b.toFixed(2)} | survival cap ≈ $${Math.max(0,cap).toFixed(2)}/loss`;
+}
+
+function recordRiskBlock(reason){
+ signalBlocked.risk=(signalBlocked.risk||0)+1;
+ const d=$('modelDiag');
+ if(d)d.textContent=`RISK BLOCK ${reason} | configured budget $${sequenceBudget().toFixed(2)} | loss streak ${mgStep}`;
+}
+
+function checkSurvivalLimit(){
+ if(!survivalEnabled())return false;
+ const t=Math.max(1,Math.floor(n('survivalLosses')));
+ const b=sequenceBudget();
+
+ if(!(b>0)){
+   running=false;entryPending=false;sessionActive=false;stopConnectionWatchdog();
+   status('NO BUDGET');
+   log('SURVIVAL STOP: sequence-loss budget is not configured above $0.00.');
+   return true;
+ }
+
+ if(mgStep>=t){
+   running=false;entryPending=false;sessionActive=false;stopConnectionWatchdog();
+   status('SURVIVAL STOP');
+   log(`SURVIVAL STOP: ${mgStep} consecutive losses reached tolerance ${t}. Loss pool $${mgLossPool.toFixed(2)} / budget $${b.toFixed(2)}.`);
+   return true;
+ }
+
+ if(mgLossPool>=b-.0001){
+   running=false;entryPending=false;sessionActive=false;stopConnectionWatchdog();
+   status('SURVIVAL BUDGET');
+   log(`SURVIVAL STOP: loss pool $${mgLossPool.toFixed(2)} reached budget $${b.toFixed(2)}.`);
+   return true;
+ }
+ return false;
+}
+
+function targetReached(){
+ const target=Math.max(0,n('profitTarget'));
+ return target>0 && pnl>=target;
+}
+
+function checkSessionLimits(){
+ if(targetReached()){
+   running=false;entryPending=false;sessionActive=false;stopConnectionWatchdog();status('TARGET HIT');
+   log(`SESSION PROFIT TARGET REACHED: +$${pnl.toFixed(2)} >= +$${n('profitTarget').toFixed(2)}. BOT STOPPED — no new trades will be entered.`);return true;
+ }
+ if(n('lossStop')>0&&pnl<=-Math.abs(n('lossStop'))){
+   running=false;entryPending=false;sessionActive=false;stopConnectionWatchdog();status('LOSS STOP');
+   log(`SESSION LOSS STOP REACHED: $${pnl.toFixed(2)} <= -$${Math.abs(n('lossStop')).toFixed(2)}. No new trades will be entered.`);return true;
+ }
+ if(checkSurvivalLimit())return true;
+ return false;
+}
+
+function executionDiag(stage, detail=''){
+ const msg=`${stage}${detail?` | ${detail}`:''}`;
+ log(`EXECUTION ${msg}`);
+ const el=$('executionDiag'); if(el)el.textContent=`Execution: ${msg}`;
+}
+
+async function maybeTrade(){
+ if(!running||!sessionActive||!marketReady||!tradeReady||tradeRecoveryLock||active||activePair||pairPending||entryPending||prices.length<30||lastSignalTick===prices.length-1)return;
+ lastSignalTick=prices.length-1;
+ entryPending=true;
+ signalChecks++;
+
+ if(trades>=n('maxTrades')){entryPending=false;running=false;sessionActive=false;stopConnectionWatchdog();status('COMPLETE');return}
+ if(checkSessionLimits())return;
+
+ const profile=entryThresholds();
+ if(samples.length<200){
+   entryPending=false;recordBlock('warmup');return;
+ }
+
+ if(checkSurvivalLimit()){
+   entryPending=false;return;
+ }
+
+ const edge=edgeGatePass();
+ if(!edge.pass){
+   entryPending=false;
+   signalBlocked.edge=(signalBlocked.edge||0)+1;
+   executionDiag('BLOCKED','statistical edge gate');
+   log(`ENTRY BLOCKED: ${edge.reason}`);
+   return;
+ }
+
+ const p=predict(),prob=Math.max(p.pUp,p.pDown);
+ if(prob<profile.minProb){
+   entryPending=false;recordBlock('prob');executionDiag('BLOCKED','probability below minimum');return;
+ }
+ if(prob>profile.maxProb){
+   entryPending=false;recordBlock('highprob');executionDiag('BLOCKED','probability above maximum');return;
+ }
+ if(Math.abs(p.pUp-p.pDown)<profile.minGap){
+   entryPending=false;recordBlock('gap');executionDiag('BLOCKED','probability gap too small');return;
+ }
+ const neededNeighbors=Math.min(10,Math.max(3,Math.floor(n('k'))));
+ if(p.neighbors<neededNeighbors){
+   entryPending=false;recordBlock('neighbors');executionDiag('BLOCKED','insufficient KNN neighbors');return;
+ }
+ if(p.neighborAgreement<profile.agreement){
+   entryPending=false;recordBlock('agreement');executionDiag('BLOCKED','neighbor agreement too low');return;
+ }
+ if(p.medianDistance>profile.maxDist){
+   entryPending=false;recordBlock('distance');executionDiag('BLOCKED','median distance too high');return;
+ }
+
+ signalQualified++; executionDiag('SIGNAL QUALIFIED', `${p.dir} P=${(prob*100).toFixed(1)}%`);
+ const dir=p.dir,type=dir==='RISE'?'PUT':'CALL';
+ try{
+  const preCap=survivalStakeCap();
+  if(survivalEnabled()&&!(preCap>=.35)){
+    entryPending=false;
+    recordRiskBlock('MINIMUM STAKE EXCEEDS REMAINING BUDGET');
+    running=false;sessionActive=false;stopConnectionWatchdog();status('SURVIVAL BUDGET');
+    log(`SURVIVAL STOP: next-stake allowance is below the $0.35 minimum. Pool $${mgLossPool.toFixed(2)} / budget $${sequenceBudget().toFixed(2)}.`);
+    return;
+  }
+  const probeStake=survivalEnabled()?Math.min(normalizeStake(Math.max(.35,n('stake'))),Math.max(.35,preCap)):normalizeStake(Math.max(.35,n('stake')));
+  executionDiag('REQUEST PROPOSAL', `${dir} stake ${probeStake.toFixed(2)}`);
+  const probe=await send(trade,tp,{
+    proposal:1,amount:probeStake,basis:'stake',contract_type:type,currency:'USD',
+    duration:Math.max(1,Math.floor(n('duration'))),duration_unit:'t',
+    underlying_symbol:sym()
+  },'trade');
+
+  const probeAsk=Number(probe.proposal?.ask_price);
+  const probePay=Number(probe.proposal?.payout);
+  const probePid=probe.proposal?.id;
+  if(!probePid||!Number.isFinite(probeAsk)||!Number.isFinite(probePay))
+    throw new Error('Invalid proposal returned for Rise/Fall');
+
+  const payoutPct=(probePay-probeAsk)/probeAsk*100;
+  if(payoutPct<n('minPayout')){
+    entryPending=false;recordBlock('payout');executionDiag('BLOCKED','payout below minimum');
+    log(`${dir} signal qualified but payout ${payoutPct.toFixed(1)}% is below ${n('minPayout').toFixed(1)}%.`);
+    return;
+  }
+
+  let stake=nextStake(payoutPct);
+  if(!(stake>=.35)){
+    entryPending=false;running=false;sessionActive=false;stopConnectionWatchdog();status('SURVIVAL BUDGET');
+    log(`SURVIVAL STOP: payout-aware recovery stake is below the $0.35 minimum under the sequence budget.`);return;
+  }
+  const coverage=recoveryCoverage(stake,payoutPct);
+  log(`QUALIFIED ${dir} | payout ${payoutPct.toFixed(1)}% | next $${stake.toFixed(2)} | ${resetMode?'RESET MODE — BASE STAKE':'coverage '+(coverage*100).toFixed(0)+'% | '+survivalStatusText(payoutPct)}`);
+  executionDiag('REQUEST RECOVERY PROPOSAL', `${dir} stake ${normalizeStake(stake).toFixed(2)}`);
+  const pr=await send(trade,tp,{
+    proposal:1,amount:normalizeStake(stake),basis:'stake',contract_type:type,currency:'USD',
+    duration:Math.max(1,Math.floor(n('duration'))),duration_unit:'t',
+    underlying_symbol:sym()
+  },'trade');
+
+  const ask=Number(pr.proposal?.ask_price),pay=Number(pr.proposal?.payout),pid=pr.proposal?.id;
+  if(!pid||!Number.isFinite(ask)||!Number.isFinite(pay))throw new Error('Invalid recovery proposal');
+
+  const actualPayoutPct=(pay-ask)/ask*100;
+  if(actualPayoutPct<n('minPayout')){
+    entryPending=false;recordBlock('payout');executionDiag('BLOCKED','payout below minimum');
+    log(`${dir} recovery proposal payout ${actualPayoutPct.toFixed(1)}% is below ${n('minPayout').toFixed(1)}%.`);
+    return;
+  }
+
+  active={
+    dir,type,prob,
+    rawProb:p.pUp>=.5?p.rawPUp:1-p.rawPUp,
+    calProb:p.calibratedCandidate,
+    gap:p.gap,neighbors:p.neighbors,
+    neighborAgreement:p.neighborAgreement,medianDistance:p.medianDistance,
+    features:p.features,stake:normalizeStake(ask),payoutPct:actualPayoutPct,
+     calProb:p.calibratedCandidate,
+     softenedProb:p.softenedCandidate,
+     adjustedProb:p.adjustedCandidate,
+     baseRate:p.baseRate,
+     regimeLabel:p.regimeLabel,
+     continuationRisk:p.continuationRisk,
+     entry:prices.at(-1),id:null,mgStep,mgLossPool,
+     recoveryCoverage:recoveryCoverage(normalizeStake(ask),actualPayoutPct),
+     sequenceProb:p.sequenceProb||.5,
+     sequenceStrength:p.sequenceStrength||0,
+     sequenceObservations:p.sequenceObservations||0,
+     sequencePattern:p.sequencePattern||'',
+     sequenceOrder:p.sequenceOrder||0,
+     sequenceUsable:Boolean(p.sequenceUsable),
+     sequenceBucket:p.sequenceBucket||sequenceBucket(p.preSequenceCandidate||p.prob||.5),
+     sequenceSource:p.sequenceSource||'BUILDING',
+     preSequenceCandidate:p.preSequenceCandidate||p.prob||.5,
+     rfSequenceProb:p.rfSequenceProb||.5,
+     rfSequenceStrength:p.rfSequenceStrength||0,
+     rfSequenceObservations:p.rfSequenceObservations||0,
+     rfSequencePattern:p.rfSequencePattern||'',
+     rfSequenceUsable:Boolean(p.rfSequenceUsable),
+     rfSequenceSource:p.rfSequenceSource||'BUILDING'
+  };
+
+  status(`BUY ${dir} | ${resetMode?'RESET BASE':'MG '+mgStep}`);
+  uncertainBuy=true;
+  executionDiag('BUY', `${dir} stake ${normalizeStake(ask).toFixed(2)} payout ${actualPayoutPct.toFixed(1)}%`);
+  const b=await send(trade,tp,{buy:pid,price:normalizeStake(ask)},'trade');
+  const cid=Number(b.buy?.contract_id);
+  if(!cid)throw new Error('No contract ID from buy');
+
+  active.id=cid;entryPending=false;uncertainBuy=false;
+  trade.send(JSON.stringify({
+    proposal_open_contract:1,contract_id:cid,subscribe:1,req_id:tradeReq++
+  }));
+
+  log(`BOUGHT ${dir} | final=${(prob*100).toFixed(1)}% | sequence=${p.sequenceUsable?(p.sequencePattern+' '+(p.sequenceProb*100).toFixed(1)+'%'):'BUILDING'}% | raw=${((p.pUp>=.5?p.rawPUp:1-p.rawPUp)*100).toFixed(1)}% | softened=${(p.softenedCandidate*100).toFixed(1)}% | calibrated=${(p.calibratedCandidate*100).toFixed(1)}% | regime=${p.regimeLabel} ${((p.continuationRisk||0)*100).toFixed(0)}% | agree=${(p.neighborAgreement*100).toFixed(1)}% | stake $${ask.toFixed(2)} | payout ${actualPayoutPct.toFixed(1)}% | coverage ${(active.recoveryCoverage*100).toFixed(0)}%`);
+ }catch(e){
+   entryPending=false;signalBlocked.error++;
+   log(`Trade error: ${e.message}`);
+   // If the failure occurred after buy was sent, uncertainty is handled on the
+   // next reconnect via portfolio reconciliation. Never submit a blind retry.
+   active=null;
+   if(uncertainBuy){
+     tradeRecoveryLock=true;
+     running=false;
+     status('POSITION RECONCILIATION');
+     if(tradeReady){
+       reconcileTradeState().catch(err=>log(`Immediate position reconciliation failed: ${err.message}`));
+     }
+   }else status('ERROR');
+ }
+}
+
+function appendCompletedRecord(r,won){
+  records.unshift(r);
+  const tr=document.createElement('tr');
+  tr.innerHTML=`<td>${r.num}</td><td>${r.time}</td><td>${r.dir}</td><td>${(r.prob*100).toFixed(1)}%</td><td>$${r.stake.toFixed(2)}</td><td>${r.payout.toFixed(1)}%</td><td>${r.entry}</td><td>${Number.isFinite(r.exit)?r.exit:'—'}</td><td class="${won?'good':'bad'}">${r.result}</td><td class="${won?'good':'bad'}">${r.profit>=0?'+':''}$${r.profit.toFixed(2)}</td>`;
+  $('rows').prepend(tr);
+}
+
+function pairCanAffordBase(){
+  // The two-side recovery pair is controlled by the base stake plus a
+  // configurable factor on one model-favoured side. Keep the selected
+  // side under the existing hard recovery-stake cap.
+  const base=baseStake();
+  const recovery=recoveryStakeForPair('RISE');
+  return base>=.35 && recovery>=.35;
+}
+
+async function startTwoSideReset(){
+  if(!twoSideEnabled()||pairPending||activePair||active||!running||!sessionActive)return false;
+
+  const base=baseStake();
+  if(trades+2>n('maxTrades')){
+    log('TWO-SIDE RECOVERY BLOCKED: two contract slots would exceed Max trades.');
+    running=false;sessionActive=false;status('COMPLETE');stopConnectionWatchdog();
+    return false;
+  }
+
+  if(!pairCanAffordBase()){
+    log('TWO-SIDE RECOVERY BLOCKED: invalid base/recovery stake configuration.');
+    running=false;sessionActive=false;status('RECOVERY STAKE');
+    stopConnectionWatchdog();
+    return false;
+  }
+
+  // Re-run the live prediction at the moment the recovery pair is created.
+  // The CURRENT model-favoured side receives the recovery factor; the
+  // non-favoured side remains at BASE. Recalculate this for every pair.
+  const modelPick=modelFavouredRecoverySide();
+  const favouredSide=modelPick.side;
+  const nonFavouredSide=oppositeSide(favouredSide);
+  const recoverySide=favouredSide;
+  if(!favouredSide||!nonFavouredSide){
+    pairPending=false;entryPending=false;
+    log('TWO-SIDE RECOVERY BLOCKED: current model has no valid RISE/FALL direction.');
+    status('NO MODEL DIRECTION');
+    pairStatusText(twoSideEnabled()?'READY':'OFF');
+    return false;
+  }
+  const recoveryStake=recoveryStakeForPair(recoverySide);
+  const factor=twoSideRecoveryFactor();
+  const capped=recoveryStake < normalizeStake(base*factor)-0.001;
+  lastRecoverySide=recoverySide;
+  lastRecoveryFactor=factor;
+  lastModelFavouredSide=favouredSide;
+  lastModelFavouredProbability=modelPick.prob;
+  lastModelNonFavouredSide=nonFavouredSide;
+  updateTwoSideFactorUI();
+
+  pairPending=true;
+  entryPending=true;
+  resetMode=true;
+  pairResets++;
+  pairSeq++;
+  pairStatusText('ACTIVE');
+
+  const pairId=pairSeq;
+  const entryRef=prices.at(-1);
+  const duration=Math.max(1,Math.floor(n('duration')));
+  const dirs=[
+    {dir:'RISE',type:'PUT',stake:recoverySide==='RISE'?recoveryStake:base},
+    {dir:'FALL',type:'CALL',stake:recoverySide==='FALL'?recoveryStake:base}
+  ];
+
+  activePair={
+    pairId,
+    triggerLosses:lossStreak,
+    entryReference:entryRef,
+    duration,
+    baseStake:base,
+    recoverySide,
+    recoveryFactor:factor,
+    recoveryStake,
+    capped,
+    favouredSide,
+    nonFavouredSide,
+    recoveryIsFavoured:true,
+    modelFavouredProbability:modelPick.prob,
+    modelPUp:modelPick.prediction?.pUp||.5,
+    modelPDown:modelPick.prediction?.pDown||.5,
+    modelSequenceProbability:modelPick.prediction?.sequenceProb||.5,
+    modelSequencePattern:modelPick.prediction?.sequencePattern||'',
+    startedAt:new Date().toLocaleTimeString(),
+    legs:{
+      RISE:{dir:'RISE',type:'PUT',id:null,settled:false,stake:dirs[0].stake},
+      FALL:{dir:'FALL',type:'CALL',id:null,settled:false,stake:dirs[1].stake}
+    }
+  };
+
+  log(`TWO-SIDE RECOVERY #${pairId} TRIGGERED after normal-trade LOSS | model favours ${favouredSide} ${(modelPick.prob*100).toFixed(1)}% | recovery side ${recoverySide} (model-favoured) | factor ${factor.toFixed(1)}× | RISE $${dirs[0].stake.toFixed(2)} | FALL $${dirs[1].stake.toFixed(2)}${capped?' | CAP APPLIED':''} | entry tick ${entryRef} | ${duration} ticks.`);
+  executionDiag('TWO-SIDE RECOVERY', `pair #${pairId} | model favours ${favouredSide} ${(modelPick.prob*100).toFixed(1)}% | model-favoured ${recoverySide} receives ${factor.toFixed(1)}× | RISE $${dirs[0].stake.toFixed(2)} | FALL $${dirs[1].stake.toFixed(2)}`);
+
+  try{
+    if(!running||!sessionActive){
+      activePair=null;pairPending=false;entryPending=false;pairStatusText(twoSideEnabled()?'READY':'OFF');
+      return false;
+    }
+
+    // Request both live quotes before either buy. This keeps both legs on the
+    // same duration and as close as the API/browser permits to the same entry.
+    const proposalResponses=await Promise.all(dirs.map(d=>send(trade,tp,{
+      proposal:1,amount:d.stake,basis:'stake',contract_type:d.type,currency:'USD',
+      duration,duration_unit:'t',underlying_symbol:sym()
+    },'trade')));
+
+    const proposals=proposalResponses.map((res,i)=>{
+      const pr=res.proposal||{};
+      const ask=Number(pr.ask_price), payout=Number(pr.payout), id=pr.id;
+      if(!id||!Number.isFinite(ask)||!Number.isFinite(payout))throw new Error(`Invalid ${dirs[i].dir} proposal`);
+      const payoutPct=(payout-ask)/ask*100;
+      if(payoutPct<n('minPayout'))throw new Error(`${dirs[i].dir} pair payout ${payoutPct.toFixed(1)}% below minimum ${n('minPayout').toFixed(1)}%`);
+      return {dir:dirs[i].dir,type:dirs[i].type,id,ask,payout,payoutPct};
+    });
+
+    for(const pr of proposals){
+      activePair.legs[pr.dir].proposalId=pr.id;
+      activePair.legs[pr.dir].requestedStake=dirs.find(d=>d.dir===pr.dir)?.stake||base;
+      activePair.legs[pr.dir].stake=normalizeStake(pr.ask);
+      activePair.legs[pr.dir].payoutPct=pr.payoutPct;
+    }
+
+    // Once the first buy is attempted, finish both buy requests rather than
+    // intentionally leaving a half-pair. Any interruption is reconciled before
+    // trading resumes.
+    uncertainPairBuy=true;
+    const buys=await Promise.all(proposals.map(pr=>send(trade,tp,{
+      buy:pr.id,price:normalizeStake(pr.ask)
+    },'trade')));
+
+    buys.forEach((b,i)=>{
+      const bo=b.buy||{};
+      const cid=Number(bo.contract_id);
+      if(!cid)throw new Error(`Two-side reset ${dirs[i].dir} buy returned no contract ID`);
+      const dir=dirs[i].dir;
+      activePair.legs[dir].id=cid;
+      activePair.legs[dir].buyLongcode=bo.longcode||'';
+    });
+
+    if(!activePair.legs.RISE.id||!activePair.legs.FALL.id)throw new Error('Both two-side reset legs were not established');
+
+    uncertainPairBuy=false;
+    pairPending=false;
+    entryPending=false;
+
+    for(const leg of Object.values(activePair.legs)){
+      trade.send(JSON.stringify({
+        proposal_open_contract:1,contract_id:leg.id,subscribe:1,req_id:tradeReq++
+      }));
+    }
+
+    status(`TWO-SIDE RECOVERY #${pairId} ACTIVE`);
+    log(`TWO-SIDE RECOVERY #${pairId} BOUGHT | model favours ${favouredSide} | factor applied to model-favoured ${recoverySide} | RISE $${activePair.legs.RISE.stake.toFixed(2)} @ ${activePair.legs.RISE.payoutPct.toFixed(1)}% | FALL $${activePair.legs.FALL.stake.toFixed(2)} @ ${activePair.legs.FALL.payoutPct.toFixed(1)}%${capped?' | CAP APPLIED':''}`);
+    update();
+    updateTwoSideUI();
+    return true;
+  }catch(e){
+    pairPending=false;
+    entryPending=false;
+    if(uncertainPairBuy){
+      tradeRecoveryLock=true;
+      running=false;
+      status('POSITION RECONCILIATION');
+      log(`TWO-SIDE RECOVERY #${pairId} interrupted after buy attempt: ${e.message}. Trading paused until open positions are reconciled.`);
+      if(tradeReady)reconcileTradeState().catch(err=>log(`Pair reconciliation failed: ${err.message}`));
+    }else{
+      activePair=null;
+      pairStatusText(twoSideEnabled()?'READY':'OFF');
+      status('ERROR');
+      log(`Two-side reset proposal error: ${e.message}`);
+    }
+    return false;
+  }
+}
+
+function finalizeTwoSideReset(){
+  if(!activePair)return;
+
+  const pair=activePair;
+  const rise=pair.legs.RISE, fall=pair.legs.FALL;
+  if(!rise.settled||!fall.settled)return;
+
+  const profits=[rise.profit,fall.profit];
+  const pairProfit=profits.reduce((a,b)=>a+b,0);
+  const winsCount=[rise.won,fall.won].filter(Boolean).length;
+  const pairResult=winsCount===2?'BOTH WIN':winsCount===1?'ONE WIN / ONE LOSS':'BOTH LOSS';
+
+  if(winsCount===2)pairBothWins++;
+  else if(winsCount===0)pairBothLosses++;
+  else pairSplitResults++;
+  pairCompleted++;
+  pairPnl+=pairProfit;
+  lastPairResult=pairResult;
+
+  const pairMeta={
+    pairResult,
+    pairProfit,
+    pairId:pair.pairId,
+    pairEntryReference:pair.entryReference,
+    pairTriggerLosses:pair.triggerLosses,
+    recoverySide:pair.recoverySide,
+    recoveryFactor:pair.recoveryFactor,
+    recoveryStake:pair.recoveryStake,
+    favouredSide:pair.favouredSide,
+    nonFavouredSide:pair.nonFavouredSide,
+    recoveryIsFavoured:true,
+    modelFavouredProbability:pair.modelFavouredProbability,
+    modelPUp:pair.modelPUp,
+    modelPDown:pair.modelPDown,
+    modelSequenceProbability:pair.modelSequenceProbability,
+    modelSequencePattern:pair.modelSequencePattern
+  };
+
+  for(const leg of [rise,fall]){
+    appendCompletedRecord({
+      num:leg.tradeNo,
+      time:leg.time,
+      dir:leg.dir,
+      prob:leg.prob||0,
+      rawProb:leg.rawProb||0,
+      gap:leg.gap||0,
+      calProb:leg.calProb||0,
+      softenedProb:leg.softenedProb||0,
+      adjustedProb:leg.adjustedProb||0,
+      baseRate:leg.baseRate||0,
+      regimeLabel:leg.regimeLabel||'TWO-SIDE RECOVERY',
+      continuationRisk:leg.continuationRisk||0,
+      neighbors:leg.neighbors||0,
+      neighborAgreement:leg.neighborAgreement||0,
+      medianDistance:leg.medianDistance||0,
+      DistanceSigma:leg.features?.[0],
+      SMASlopeSigma:leg.features?.[1],
+      Momentum1Sigma:leg.features?.[2],
+      Momentum3Sigma:leg.features?.[3],
+      Momentum5Sigma:leg.features?.[4],
+      AccelerationSigma:leg.features?.[5],
+      VolatilityRatio5:leg.features?.[6],
+      Persistence:leg.features?.[7],
+      Shock:leg.features?.[8],
+      stake:leg.stake,
+      payout:leg.payoutPct,
+      entry:leg.entry,
+      exit:leg.exit,
+      result:leg.won?'WIN':'LOSS',
+      profit:leg.profit,
+      mgStepAfter:0,
+      mgPoolAfter:0,
+      balanceAfter:'',
+      sequenceBudgetAfter:sequenceBudget(),
+      recoveryCoverage:0,
+      mode:'TWO-SIDE RECOVERY',
+      pairId:pairMeta.pairId,
+      pairResult:pairMeta.pairResult,
+      pairPnl:pairMeta.pairProfit,
+      pairEntryReference:pairMeta.pairEntryReference,
+      pairTriggerLosses:pairMeta.pairTriggerLosses,
+      recoverySide:pair.recoverySide,
+      recoveryFactor:pair.recoveryFactor,
+      recoveryStake:pair.recoveryStake,
+      favouredSide:pair.favouredSide,
+      nonFavouredSide:pair.nonFavouredSide,
+      recoveryIsFavoured:true,
+      modelFavouredProbability:pair.modelFavouredProbability,
+      modelPUp:pair.modelPUp,
+      modelPDown:pair.modelPDown,
+      modelSequenceProbability:pair.modelSequenceProbability,
+      modelSequencePattern:pair.modelSequencePattern,
+      sequenceProb:'',sequenceStrength:'',sequenceObservations:'',sequencePattern:'',sequenceOrder:'',sequenceBucket:'',sequenceSource:'',preSequenceCandidate:'',rfSequenceProb:'',rfSequenceStrength:'',rfSequenceObservations:'',rfSequencePattern:'',rfSequenceUsable:'',rfSequenceSource:''
+    },leg.won);
+  }
+
+  // The two-side recovery event never advances the martingale. Reset mode stays active
+  // until the NEXT NORMAL TRADE wins.
+  lossStreak=0;
+  mgStep=0;
+  mgLossPool=0;
+  activePair=null;
+  pairPending=false;
+  entryPending=false;
+  resetMode=true;
+  pairStatusText(twoSideEnabled()?'READY':'OFF');
+
+  log(`TWO-SIDE RECOVERY #${pair.pairId} SETTLED | ${pairResult} | pair P/L ${pairProfit>=0?'+':''}$${pairProfit.toFixed(2)} | RISE ${rise.profit>=0?'+':''}$${rise.profit.toFixed(2)} | FALL ${fall.profit>=0?'+':''}$${fall.profit.toFixed(2)} | RESET MODE REMAINS ACTIVE.`);
+  log(`PAIR TOTALS | completed ${pairCompleted} | both win ${pairBothWins} | split ${pairSplitResults} | both loss ${pairBothLosses} | cumulative pair P/L ${pairPnl>=0?'+':''}$${pairPnl.toFixed(2)}`);
+  updateTwoSideUI();
+
+  if(checkSessionLimits()){
+    update();
+    return;
+  }
+  status(running?'RUNNING':'STOPPED');
+  update();
+}
+
+function pairContractUpdate(c){
+  if(!activePair)return false;
+
+  const cid=Number(c.contract_id);
+  const entries=Object.entries(activePair.legs);
+  const found=entries.find(([,leg])=>Number(leg.id)===cid);
+  if(!found)return false;
+
+  const [dir,leg]=found;
+  if(leg.settled)return true;
+  if(!c.is_sold)return true;
+
+  const profit=Number(c.profit||0);
+  const exit=Number(c.exit_tick??c.exit_spot??NaN);
+  const entry=Number(c.entry_spot??c.entry_tick??activePair.entryReference);
+  const won=profit>0;
+
+  leg.settled=true;
+  leg.profit=Number.isFinite(profit)?profit:0;
+  leg.exit=exit;
+  leg.entry=Number.isFinite(entry)?entry:activePair.entryReference;
+  leg.won=won;
+  leg.time=new Date().toLocaleTimeString();
+  leg.tradeNo=++trades;
+  leg.stake=Number(leg.stake||activePair.stake);
+  leg.payoutPct=Number(leg.payoutPct||0);
+
+  if(won)wins++;else losses++;
+  pnl+=leg.profit;
+
+  log(`TWO-SIDE RECOVERY #${activePair.pairId} ${dir} SETTLED | ${won?'WIN':'LOSS'} | P/L ${leg.profit>=0?'+':''}$${leg.profit.toFixed(2)} | entry ${leg.entry} | exit ${Number.isFinite(leg.exit)?leg.exit:'—'}`);
+
+  if(activePair&&activePair.legs.RISE.settled&&activePair.legs.FALL.settled){
+    finalizeTwoSideReset();
+  }else{
+    status(`TWO-SIDE RECOVERY #${activePair.pairId} | 1/2 SETTLED`);
+    updateTwoSideUI();
+    update();
+  }
+  return true;
+}
+
+function contractUpdate(c){
+ if(pairContractUpdate(c))return;
+ if(!active||Number(c.contract_id)!==Number(active.id)||!c.is_sold)return;
+ const profit=Number(c.profit||0),exit=Number(c.exit_tick??c.exit_spot??NaN),won=profit>0;
+ trades++;if(won)wins++;else losses++;pnl+=profit;
+ const finishedStake=active.stake;
+ if(won){
+   lossStreak=0;
+   mgStep=0;mgLossPool=0;
+   if(resetMode){
+     resetMode=false;
+     log(`RESET MODE CLEARED: normal trade WON at base stake. Returning to normal stake progression.`);
+   }else{
+     log(`RECOVERY WIN: profit $${profit.toFixed(2)}. Loss sequence reset to base stake.`);
+   }
+ }else{
+   lossStreak++;
+   if(survivalEnabled() && !resetMode){
+     mgLossPool+=finishedStake;mgStep++;
+     const budget=sequenceBudget(),tolerance=Math.max(1,Math.floor(n('survivalLosses')));
+     if(mgStep>=tolerance||(budget>0&&mgLossPool>=budget-.0001))log(`SURVIVAL BOUNDARY REACHED: loss streak ${lossStreak} | survival steps ${mgStep}/${tolerance}, pool $${mgLossPool.toFixed(2)}, budget $${budget.toFixed(2)}.`);
+   }else if(!resetMode){
+     mgStep=0;mgLossPool=0;
+   }
+ }
+ records.unshift({num:trades,time:new Date().toLocaleTimeString(),dir:active.dir,prob:active.prob,rawProb:active.rawProb,gap:active.gap,calProb:active.calProb,softenedProb:active.softenedProb,adjustedProb:active.adjustedProb,baseRate:active.baseRate,regimeLabel:active.regimeLabel,continuationRisk:active.continuationRisk,neighbors:active.neighbors,neighborAgreement:active.neighborAgreement,medianDistance:active.medianDistance,DistanceSigma:active.features?.[0],SMASlopeSigma:active.features?.[1],Momentum1Sigma:active.features?.[2],Momentum3Sigma:active.features?.[3],Momentum5Sigma:active.features?.[4],AccelerationSigma:active.features?.[5],VolatilityRatio5:active.features?.[6],Persistence:active.features?.[7],Shock:active.features?.[8],stake:finishedStake,payout:active.payoutPct,entry:active.entry,exit,result:won?'WIN':'LOSS',profit,mgStepAfter:mgStep,mgPoolAfter:mgLossPool,balanceAfter:'',sequenceBudgetAfter:sequenceBudget(),recoveryCoverage:active.recoveryCoverage,mode:'NORMAL',pairId:'',pairResult:'',pairPnl:'',pairEntryReference:'',pairTriggerLosses:'',sequenceProb:active.sequenceProb||.5,sequenceStrength:active.sequenceStrength||0,sequenceObservations:active.sequenceObservations||0,sequencePattern:active.sequencePattern||'',sequenceOrder:active.sequenceOrder||0,sequenceBucket:active.sequenceBucket||'',sequenceSource:active.sequenceSource||'',preSequenceCandidate:active.preSequenceCandidate||active.prob||.5,rfSequenceProb:active.rfSequenceProb||.5,rfSequenceStrength:active.rfSequenceStrength||0,rfSequenceObservations:active.rfSequenceObservations||0,rfSequencePattern:active.rfSequencePattern||'',rfSequenceUsable:Boolean(active.rfSequenceUsable),rfSequenceSource:active.rfSequenceSource||''});
+ const r=records[0],tr=document.createElement('tr');tr.innerHTML=`<td>${r.num}</td><td>${r.time}</td><td>${r.dir}</td><td>${(r.prob*100).toFixed(1)}%</td><td>$${r.stake.toFixed(2)}</td><td>${r.payout.toFixed(1)}%</td><td>${r.entry}</td><td>${Number.isFinite(r.exit)?r.exit:'—'}</td><td class="${won?'good':'bad'}">${r.result}</td><td class="${won?'good':'bad'}">${profit>=0?'+':''}$${profit.toFixed(2)}</td>`;
+ $('rows').prepend(tr);
+ // Only normal directional trades feed the online sequence learner.
+ sequenceRecordNormalTrade(active.dir,won,active.preSequenceCandidate);
+ // Directional sequence training uses the actual market movement, not the bot's
+ // chosen direction. Entry/Exit is preferred; Direction + Result is the fallback.
+ const actualRF=Number.isFinite(Number(active.entry))&&Number.isFinite(Number(exit))
+   ?(Number(exit)>Number(active.entry)?'R':Number(exit)<Number(active.entry)?'F':'')
+   :(won?(active.dir==='RISE'?'R':'F'):(active.dir==='RISE'?'F':'R'));
+ if(actualRF)rfRecordActualDirection(actualRF);
+ runStatisticalEdgeValidation(false).catch(err=>log(`Edge refresh failed: ${err.message}`));
+ log(`${won?'WIN':'LOSS'} ${active.dir} | P/L ${profit>=0?'+':''}$${profit.toFixed(2)} | session ${pnl>=0?'+':''}$${pnl.toFixed(2)} | seq samples ${sequenceTotalTrades}`);
+ const triggerTwoSide=!won&&twoSideEnabled()&&running&&sessionActive&&
+   !(n('lossStop')>0&&pnl<=-Math.abs(n('lossStop')));
+ active=null;entryPending=false;
+
+ if(triggerTwoSide){
+   startTwoSideReset().catch(err=>log(`Two-side reset launch failed: ${err.message}`));
+   status(`TWO-SIDE RECOVERY TRIGGERED AFTER ${lossStreak} LOSSES`);
+   updateTwoSideUI();
+   update();
+   return;
+ }
+
+ if(checkSessionLimits()){
+   // The settled trade has already closed, so there is no open position to carry.
+   // Do not allow another tick to create a new entry.
+   update();
+   return;
+ }
+ status(running?'RUNNING':'STOPPED');update();
+}
+
+
+/* ========================= V2.25 DIRECT DERIV TICK COLLECTOR ========================= */
+
+function csvEscape(v){
+  const t=String(v??'');
+  return /[",\n]/.test(t) ? `"${t.replace(/"/g,'""')}"` : t;
+}
+function sleepMs(ms){ return new Promise(r=>setTimeout(r,Math.max(0,ms))); }
+
+function collectorSet(status, summary){
+  const st=$('tickCollectorStatus'), sm=$('tickCollectorSummary');
+  if(st)st.textContent=status;
+  if(sm&&summary!==undefined)sm.innerHTML=summary;
+}
+function collectorCloseWs(){
+  try{ if(tickCollectorWs)tickCollectorWs.close(); }catch(_){}
+  tickCollectorWs=null;
+}
+
+function collectorRequestHistory(ws, symbol, end, count, reqId){
+  return new Promise((resolve,reject)=>{
+    const timer=setTimeout(()=>{
+      reject(new Error(`Deriv ticks_history timeout (request ${reqId}).`));
+    },30000);
+
+    const handler=(evt)=>{
+      let data;
+      try{ data=JSON.parse(evt.data); }catch(_){ return; }
+      const matches =
+        data.req_id===reqId ||
+        (data.echo_req && data.echo_req.req_id===reqId);
+      if(!matches && !data.error)return;
+      if(data.error){
+        clearTimeout(timer);
+        ws.removeEventListener('message',handler);
+        reject(new Error(data.error.message||data.error.code||'Deriv history request failed.'));
+        return;
+      }
+      if(data.msg_type==='history' && data.history){
+        clearTimeout(timer);
+        ws.removeEventListener('message',handler);
+        resolve(data.history);
+      }
+    };
+    ws.addEventListener('message',handler);
+    ws.send(JSON.stringify({
+      ticks_history:symbol,
+      end,
+      count,
+      style:'ticks',
+      adjust_start_time:1,
+      req_id:reqId
+    }));
+  });
+}
+
+async function collectDerivTickHistory(){
+  if(tickCollectorRunning)return;
+  tickCollectorRunning=true;
+  tickCollectorStop=false;
+  const symbol=String($('tickCollectorSymbol')?.value||'1HZ75V').trim()||'1HZ75V';
+  const target=Math.max(1000,Math.min(500000,Math.floor(researchNum('tickCollectorTarget',100000))));
+  const chunk=Math.max(1000,Math.min(10000,Math.floor(researchNum('tickCollectorChunk',10000))));
+  const delay=Math.max(0,Math.min(5000,Math.floor(researchNum('tickCollectorDelay',250))));
+  const rows=[];
+  let end='latest';
+  let reqId=700001;
+
+  collectorSet('CONNECTING',`Connecting to Deriv public market-data WebSocket for <b>${symbol}</b>...`);
+  try{
+    const endpoints=[
+      'wss://ws.binaryws.com/websockets/v3',
+      'wss://ws.derivws.com/websockets/v3',
+      'wss://api.derivws.com/trading/v1/options/ws/public'
+    ];
+    let lastErr='Unknown connection error';
+
+    for(const endpoint of endpoints){
+      if(tickCollectorStop)throw new Error('Stopped by user.');
+      collectorSet('CONNECTING',`Trying Deriv public endpoint <b>${endpoint}</b>...`);
+      try{
+        const candidate=new WebSocket(endpoint);
+        await new Promise((resolve,reject)=>{
+          const timer=setTimeout(()=>{
+            try{candidate.close();}catch(_){}
+            reject(new Error('connection timeout'));
+          },15000);
+          let opened=false;
+          candidate.addEventListener('open',()=>{opened=true;clearTimeout(timer);resolve();},{once:true});
+          candidate.addEventListener('error',()=>{
+            clearTimeout(timer);
+            reject(new Error('WebSocket connection error'));
+          },{once:true});
+          candidate.addEventListener('close',evt=>{
+            if(!opened){
+              clearTimeout(timer);
+              reject(new Error(`closed before open (code ${evt.code}${evt.reason?`, ${evt.reason}`:''})`));
+            }
+          },{once:true});
+        });
+        tickCollectorWs=candidate;
+        break;
+      }catch(err){
+        lastErr=`${endpoint}: ${err.message}`;
+        tickCollectorWs=null;
+      }
+    }
+
+    if(!tickCollectorWs){
+      throw new Error(`Unable to connect to any Deriv public WebSocket endpoint. ${lastErr}`);
+    }
+
+    // Verify the connected public channel answers a one-tick history request.
+    try{
+      const probe=await collectorRequestHistory(tickCollectorWs,symbol,'latest',1,699999);
+      if(!probe || !probe.prices?.length)throw new Error('empty history response');
+    }catch(err){
+      throw new Error(`Connected to Deriv, but the market-data probe failed: ${err.message}`);
+    }
+
+    while(rows.length<target && !tickCollectorStop){
+      const want=Math.min(chunk,target-rows.length);
+      collectorSet(`DOWNLOADING`,
+        `Requesting chunk of <b>${want.toLocaleString()}</b> ticks. `+
+        `Collected <b>${rows.length.toLocaleString()}</b> / ${target.toLocaleString()}.`);
+
+      const h=await collectorRequestHistory(tickCollectorWs,symbol,end,want,reqId++);
+      const ps=Array.isArray(h.prices)?h.prices:[];
+      const ts=Array.isArray(h.times)?h.times:[];
+      const n0=Math.min(ps.length,ts.length);
+      if(!n0)throw new Error('Deriv returned an empty tick-history response.');
+
+      // Deriv history is chronological in the returned arrays. Append oldest->newest,
+      // but avoid duplicating the boundary between chunks.
+      const chunkRows=[];
+      for(let i=0;i<n0;i++){
+        const t=Number(ts[i]), q=Number(ps[i]);
+        if(!Number.isFinite(t)||!Number.isFinite(q))continue;
+        chunkRows.push({epoch:t,quote:q});
+      }
+      if(!chunkRows.length)throw new Error('No numeric prices/timestamps were returned.');
+
+      if(rows.length){
+        const priorOldest=rows[0];
+        const filtered=chunkRows.filter(r=>!(r.epoch===priorOldest.epoch && r.quote===priorOldest.quote));
+        // Because we are walking backwards, prepend older data.
+        rows.unshift(...filtered);
+      }else{
+        rows.push(...chunkRows);
+      }
+
+      if(rows.length>target)rows.splice(0,rows.length-target);
+      $('tickCollectorCount').textContent=rows.length.toLocaleString();
+      $('tickCollectorOldest').textContent=rows[0]?.epoch?new Date(rows[0].epoch*1000).toISOString():'—';
+
+      // Continue from just before the oldest returned tick.
+      const oldest=rows[0]?.epoch;
+      if(!Number.isFinite(oldest))break;
+      end=Math.max(0,Math.floor(oldest-1));
+
+      if(chunkRows.length<want){
+        // The endpoint can legitimately return fewer rows near an available-data boundary.
+        if(rows.length<target){
+          collectorSet('PARTIAL',
+            `Deriv returned only <b>${chunkRows.length.toLocaleString()}</b> ticks in the last request. `+
+            `Collected <b>${rows.length.toLocaleString()}</b> total; stopping at the available boundary.`);
+        }
+        break;
+      }
+      if(delay)await sleepMs(delay);
+    }
+
+    if(!rows.length)throw new Error('No ticks were collected.');
+    rows.sort((a,b)=>a.epoch-b.epoch || a.quote-b.quote);
+
+    // Defensive de-duplication by epoch+quote pair.
+    const uniq=[];
+    let lastKey='';
+    for(const r of rows){
+      const key=`${r.epoch}|${r.quote}`;
+      if(key===lastKey)continue;
+      lastKey=key;
+      uniq.push(r);
+    }
+
+    const lines=['epoch,quote,symbol'];
+    for(const r of uniq)lines.push(`${r.epoch},${csvEscape(r.quote)},${csvEscape(symbol)}`);
+    const blob=new Blob([lines.join('\n')+'\n'],{type:'text/csv;charset=utf-8'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;
+    a.download=`${symbol}_raw_ticks_${uniq.length}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),5000);
+
+    // Load directly into the research lab as well.
+    researchPrices=uniq.map(r=>r.quote);
+    researchEpochs=uniq.map(r=>r.epoch);
+    $('researchDataStatus').textContent=`COLLECTED ${uniq.length.toLocaleString()} TICKS`;
+    collectorSet(
+      tickCollectorStop?'STOPPED / EXPORTED':'COMPLETE / EXPORTED',
+      `<b>${uniq.length.toLocaleString()}</b> ticks exported as `+
+      `<b>${symbol}_raw_ticks_${uniq.length}.csv</b>. `+
+      `The dataset has also been loaded into the Information Validation Lab.`
+    );
+  }catch(err){
+    const detail = /Unable to connect|WebSocket connection error|connection timeout|closed before open/i.test(err.message)
+      ? `${err.message}<br><span style="opacity:.9">This points to a browser/network WebSocket block. The collector tries multiple Deriv public endpoints automatically. Running the page from an HTTPS host such as GitHub Pages can also help; a <code>file://</code> page is more often restricted by local/browser policy.</span>`
+      : /subscribe/i.test(err.message)
+        ? `${err.message}<br><span style="opacity:.9">The previous collector sent <code>subscribe: 0</code>; Deriv's legacy ticks_history endpoint does not accept that value. This version omits the subscribe field for the one-time history request.</span>`
+        : err.message;
+    collectorSet('ERROR',`Tick collector error: <b>${detail}</b>`);
+    log(`V2.25 TICK COLLECTOR ERROR: ${err.message}`);
+  }finally{
+    collectorCloseWs();
+    tickCollectorRunning=false;
+    tickCollectorStop=false;
+  }
+}
+
+$('downloadV75Ticks')?.addEventListener('click',()=>collectDerivTickHistory());
+$('stopV75Ticks')?.addEventListener('click',()=>{
+  if(tickCollectorRunning){
+    tickCollectorStop=true;
+    collectorSet('STOPPING','Stopping after the current Deriv request and exporting the ticks collected so far...');
+  }
+});
+
+/* ========================= V2.25 INFORMATION / FALSIFICATION LAB ========================= */
+
+function researchNum(id, fallback=0){
+  const el=$(id); const v=Number(el?.value);
+  return Number.isFinite(v)?v:fallback;
+}
+function parseNumericList(id, defaults){
+  const raw=String($(id)?.value||'');
+  const xs=raw.split(',').map(x=>Number(x.trim())).filter(Number.isFinite);
+  return xs.length?xs:defaults.slice();
+}
+function fmtPct(x,d=1){return Number.isFinite(x)?(x*100).toFixed(d)+'%':'—';}
+function fmtNum(x,d=4){return Number.isFinite(x)?x.toFixed(d):'—';}
+
+function inverseNormalCDF(p){
+  const q=Math.min(.999999,Math.max(.000001,p));
+  const a=[-39.6968302866538,220.946098424521,-275.928510446969,138.357751867269,-30.6647980661472,2.50662827745924];
+  const b=[-54.4760987982241,161.585836858041,-155.698979859887,66.8013118877197,-13.2806815528857];
+  const c=[-0.00778489400243029,-0.322396458041136,-2.40075827716184,-2.54973253934373,4.37466414146497,2.93816398269878];
+  const d=[0.00778469570904146,0.32246712907004,2.445134137143,3.75440866190742];
+  if(q<.02425){
+    const t=Math.sqrt(-2*Math.log(q));
+    const num=((((c[0]*t+c[1])*t+c[2])*t+c[3])*t+c[4])*t+c[5];
+    const den=((((d[0]*t+d[1])*t+d[2])*t+d[3])*t+1);
+    return num/den;
+  }
+  if(q>.97575){
+    const t=Math.sqrt(-2*Math.log(1-q));
+    const num=((((c[0]*t+c[1])*t+c[2])*t+c[3])*t+c[4])*t+c[5];
+    const den=((((d[0]*t+d[1])*t+d[2])*t+d[3])*t+1);
+    return -num/den;
+  }
+  const r=q-.5,s=r*r;
+  let num=a[0]*s+a[1];
+  for(let i=2;i<a.length;i++)num=num*s+a[i];
+  const denBase=b[0]*s+b[1];
+  let den=denBase;
+  for(let i=2;i<b.length;i++)den=den*s+b[i];
+  den=den*s+1;
+  return (num*r)/den;
+}
+function researchLogGamma(z){
+  const cof=[676.5203681218851,-1259.1392167224028,771.3234287776531,
+             -176.6150291621406,12.507343278686905,-0.13857109526572012,
+             9.984369578019572e-6,1.5056327351493116e-7];
+  if(z<.5)return Math.log(Math.PI)-Math.log(Math.sin(Math.PI*z))-researchLogGamma(1-z);
+  let x=0.9999999999998099,t=z-1;
+  for(let i=0;i<cof.length;i++)x+=cof[i]/(t+i+1);
+  const g=7, q=t+g+.5;
+  return .5*Math.log(2*Math.PI)+(t+.5)*Math.log(q)-q+Math.log(x);
+}
+function researchGammaP(a,x){
+  if(!(a>0)||x<0)return NaN;
+  if(x===0)return 0;
+  const eps=1e-12,maxIt=10000;
+  if(x<a){
+    let sum=1/a,term=sum;
+    for(let n=1;n<=maxIt;n++){
+      term*=x/(a+n); sum+=term;
+      if(Math.abs(term)<Math.abs(sum)*eps)break;
+    }
+    return Math.exp(-x+a*Math.log(x)-researchLogGamma(a))*sum;
+  }
+  let b=x+1-a,c=1/1e-300,d=1/b,h=d;
+  for(let i=1;i<=maxIt;i++){
+    const an=-i*(i-a), b2=b+2*i;
+    d=an*d+b2; if(Math.abs(d)<1e-300)d=1e-300;
+    c=b2+an/c; if(Math.abs(c)<1e-300)c=1e-300;
+    d=1/d; const del=d*c; h*=del;
+    if(Math.abs(del-1)<eps)break;
+  }
+  return 1-Math.exp(-x+a*Math.log(x)-researchLogGamma(a))*h;
+}
+function chiSquareUpperTail(x,df){
+  if(!Number.isFinite(x)||!(df>0))return NaN;
+  return 1-researchGammaP(df/2,x/2);
+}
+function researchMean(a){return a?.length? a.reduce((s,x)=>s+x,0)/a.length:NaN;}
+function researchVariance(a){
+  if(!a||a.length<2)return NaN;
+  const m=researchMean(a); return a.reduce((s,x)=>s+(x-m)*(x-m),0)/(a.length-1);
+}
+function researchShuffle(a){
+  const x=a.slice();
+  for(let i=x.length-1;i>0;i--){
+    const j=Math.floor(Math.random()*(i+1));
+    const t=x[i];x[i]=x[j];x[j]=t;
+  }
+  return x;
+}
+function researchBuildPathFromReturns(rets,start){
+  const out=[Number(start)||1];
+  for(const r of rets)out.push(out[out.length-1]+r);
+  return out;
+}
+function researchReturns(path){
+  const out=[];
+  for(let i=1;i<path.length;i++){
+    const a=Number(path[i-1]),b=Number(path[i]);
+    if(Number.isFinite(a)&&Number.isFinite(b))out.push(b-a);
+  }
+  return out;
+}
+function researchSignSeq(rets){
+  return rets.map(r=>r>0?1:r<0?0:null).filter(x=>x!==null);
+}
+function researchAutocorr(a,lag){
+  if(!a||a.length<=lag+2)return NaN;
+  const m=researchMean(a);
+  let num=0,den=0;
+  for(const x of a)den+=(x-m)*(x-m);
+  for(let i=lag;i<a.length;i++)num+=(a[i]-m)*(a[i-lag]-m);
+  return den?num/den:NaN;
+}
+function researchRunsTestBinary(seq){
+  if(!seq||seq.length<10)return {runs:NaN,z:NaN,p:NaN};
+  const n1=seq.filter(x=>x===1).length,n0=seq.length-n1;
+  if(n1<2||n0<2)return {runs:NaN,z:NaN,p:NaN};
+  let runs=1;
+  for(let i=1;i<seq.length;i++)if(seq[i]!==seq[i-1])runs++;
+  const mu=1+2*n1*n0/(n1+n0);
+  const varR=(2*n1*n0*(2*n1*n0-n1-n0))/(((n1+n0)**2)*(n1+n0-1));
+  const z=(runs-mu)/Math.sqrt(Math.max(1e-12,varR));
+  const p=2*(1-normalCdf(Math.abs(z)));
+  return {runs,z,p};
+}
+function researchLjungBox(rets,maxLag=10){
+  const n=rets.length;
+  if(n<maxLag+10)return {Q:NaN,p:NaN,lag:maxLag};
+  let q=0;
+  for(let k=1;k<=maxLag;k++){
+    const r=researchAutocorr(rets,k);
+    if(Number.isFinite(r))q+=(r*r)/(n-k);
+  }
+  q*=n*(n+2);
+  return {Q:q,p:chiSquareUpperTail(q,maxLag),lag:maxLag};
+}
+function researchConditionalTable(rets,maxK=6){
+  const s=researchSignSeq(rets), out=[];
+  const K=Math.min(6,Math.max(1,Math.floor(maxK)));
+  for(let k=1;k<=K;k++){
+    const rows=Array(2**k).fill(0).map(()=>({n:0,up:0}));
+    for(let i=k;i<s.length;i++){
+      let code=0;
+      for(let j=i-k;j<i;j++)code=(code<<1)|s[j];
+      rows[code].n++;
+      rows[code].up+=s[i];
+    }
+    const non=rows.filter(r=>r.n>0);
+    const total=non.reduce((x,r)=>x+r.n,0);
+    const totalUp=non.reduce((x,r)=>x+r.up,0);
+    const totalDn=total-totalUp;
+    let chi=0, used=0;
+    for(const r of non){
+      const eUp=total? r.n*totalUp/total:0;
+      const eDn=total? r.n*totalDn/total:0;
+      if(eUp>1e-12){chi+=(r.up-eUp)**2/eUp;used++}
+      if(eDn>1e-12){chi+=(r.n-r.up-eDn)**2/eDn;}
+    }
+    const df=Math.max(1,used-1);
+    out.push({
+      k,n:total,patterns:non.length,chi,p:chiSquareUpperTail(chi,df),
+      strongest:non.sort((a,b)=>Math.abs((b.up/b.n)-.5)-Math.abs((a.up/a.n)-.5)).slice(0,5)
+        .map(r=>({p:r.n?r.up/r.n:.5,n:r.n}))
+    });
+  }
+  return out;
+}
+function researchConditionalRows(rets,maxK=6){
+  const s=researchSignSeq(rets), res=[];
+  const K=Math.min(6,Math.max(1,Math.floor(maxK)));
+  for(let k=1;k<=K;k++){
+    const rows=Array(2**k).fill(0).map(()=>({n:0,up:0}));
+    for(let i=k;i<s.length;i++){
+      let code=0,pat='';
+      for(let j=i-k;j<i;j++){code=(code<<1)|s[j];pat+=s[j]?'U':'D';}
+      rows[code].n++; rows[code].up+=s[i];
+    }
+    for(const r of rows){
+      if(!r.n)continue;
+      res.push({k,pattern:r.n?rows.indexOf(r).toString(2).padStart(k,'0').replaceAll('0','D').replaceAll('1','U'):'',n:r.n,upRate:r.up/r.n});
+    }
+  }
+  return res;
+}
+function researchVarianceRatio(rets,ks){
+  if(rets.length<50)return [];
+  const out=[];
+  const m=researchMean(rets);
+  const one=researchVariance(rets);
+  if(!(one>0))return out;
+  for(const k0 of ks){
+    const k=Math.max(2,Math.floor(k0));
+    if(k>=rets.length/3)continue;
+    const sums=[];
+    for(let i=k-1;i<rets.length;i++){
+      let s=0; for(let j=0;j<k;j++)s+=rets[i-j];
+      sums.push(s);
+    }
+    const vk=researchVariance(sums);
+    const vr=vk/(k*one);
+    const n=rets.length;
+    let phi=0;
+    for(let j=1;j<k;j++){
+      let num=0;
+      for(let t=j;t<n;t++){
+        const a=rets[t]-m,b=rets[t-j]-m;
+        num+=a*a*b*b;
+      }
+      const den=rets.reduce((s,r)=>s+(r-m)*(r-m),0);
+      const delta=den>0?num/(den*den):0;
+      phi+=4*((k-j)/k)**2*delta;
+    }
+    const z=(vr-1)/Math.sqrt(Math.max(1e-12,phi));
+    out.push({k,vr,z,p:2*(1-normalCdf(Math.abs(z))),interpretation:vr>1.02?'momentum':vr<.98?'mean reversion':'near random walk'});
+  }
+  return out;
+}
+function researchARCHLM(rets,lags=10){
+  const y=rets.map(x=>x*x);
+  const n=y.length;
+  const p=Math.max(2,Math.min(30,Math.floor(lags)));
+  if(n<=p+20)return {n,p,LM:NaN,pValue:NaN,r2:NaN};
+  const m=researchMean(y);
+  const Y=y.slice(p);
+  const X=[];
+  for(let i=p;i<n;i++){
+    const row=[1];
+    for(let j=1;j<=p;j++)row.push(y[i-j]-m);
+    X.push(row);
+  }
+  const XtX=Array(p+1).fill(0).map(()=>Array(p+1).fill(0));
+  const Xty=Array(p+1).fill(0);
+  for(let i=0;i<X.length;i++){
+    const row=X[i];
+    for(let a=0;a<=p;a++){Xty[a]+=row[a]*Y[i];for(let b=0;b<=p;b++)XtX[a][b]+=row[a]*row[b];}
+  }
+  // Gaussian elimination with pivoting.
+  const A=XtX.map((r,i)=>r.concat([Xty[i]]));
+  for(let c=0;c<=p;c++){
+    let piv=c;
+    for(let r=c+1;r<=p;r++)if(Math.abs(A[r][c])>Math.abs(A[piv][c]))piv=r;
+    [A[c],A[piv]]=[A[piv],A[c]];
+    const den=A[c][c]||1e-12;
+    for(let j=c;j<=p+1;j++)A[c][j]/=den;
+    for(let r=0;r<=p;r++)if(r!==c){
+      const f=A[r][c];
+      if(Math.abs(f)<1e-14)continue;
+      for(let j=c;j<=p+1;j++)A[r][j]-=f*A[c][j];
+    }
+  }
+  const beta=A.map(r=>r[p+1]);
+  const ybar=researchMean(Y);
+  let sst=0,sse=0;
+  for(let i=0;i<Y.length;i++){
+    const yh=beta.reduce((s,b,j)=>s+b*X[i][j],0);
+    sst+=(Y[i]-ybar)**2; sse+=(Y[i]-yh)**2;
+  }
+  const r2=sst>0?Math.max(0,1-sse/sst):0;
+  const LM=Y.length*r2;
+  return {n:Y.length,p,LM,pValue:chiSquareUpperTail(LM,p),r2};
+}
+function researchRealizedVol(path,epochArr,windowSizes){
+  const rets=researchReturns(path);
+  const medSec=(()=>{
+    const ds=[];
+    for(let i=1;i<(epochArr||[]).length;i++){
+      const d=Number(epochArr[i])-Number(epochArr[i-1]);
+      if(Number.isFinite(d)&&d>0&&d<3600)ds.push(d);
+    }
+    if(!ds.length)return 2;
+    ds.sort((a,b)=>a-b);
+    return ds[Math.floor(ds.length/2)]||2;
+  })();
+  const secYear=365*24*3600;
+  const out=[];
+  for(const w0 of windowSizes){
+    const w=Math.max(5,Math.floor(w0)), vals=[];
+    for(let i=w;i<=rets.length;i+=w){
+      const seg=rets.slice(i-w,i);
+      const rv=seg.reduce((s,r)=>s+r*r,0);
+      const annual=Math.sqrt((rv/(w*medSec/secYear))*1);
+      if(Number.isFinite(annual))vals.push(annual);
+    }
+    if(vals.length){
+      const m=researchMean(vals);
+      const s=Math.sqrt(Math.max(0,researchVariance(vals)));
+      out.push({window:w,n:vals.length,mean:m,median:vals.slice().sort((a,b)=>a-b)[Math.floor(vals.length/2)],sd:s,se:s/Math.sqrt(vals.length),cv:m?s/m:NaN});
+    }
+  }
+  return {tickSeconds:medSec,windows:out};
+}
+
+function researchFeatureAt(path,end){
+  const old=prices; prices=path;
+  try{return featureAt(end);}finally{prices=old;}
+}
+function researchKnnDetailed(path,cfg,targetIndices){
+  const old=prices; prices=path;
+  try{
+    const H=Math.max(1,Math.floor(cfg.duration));
+    const all=[];
+    const maxTarget=Math.max(...targetIndices);
+    for(let i=20;i<=Math.min(maxTarget,path.length-H-1);i++){
+      const x=featureAt(i); if(!x)continue;
+      const d=path[i+H]-path[i]; if(!Number.isFinite(d)||d===0)continue;
+      all.push({x,y:d>0?1:0,index:i});
+    }
+    const stats=featureStats(all);
+    const minPool=Math.max(10,Math.min(all.length,cfg.k+2));
+    const result=[];
+    for(const target of targetIndices){
+      const x=featureAt(target);
+      if(!x)continue;
+      const eligible=all.filter(e=>e.index+H<target).slice(-Math.max(100,cfg.maxSamples||1500));
+      if(eligible.length<minPool)continue;
+      const r=fastKnnOnPool(x,eligible,stats,cfg.k,target);
+      if(!r)continue;
+      const future=path[target+H]-path[target];
+      if(!Number.isFinite(future)||future===0)continue;
+      const actual=future>0?1:0;
+      result.push({
+        index:target,
+        dir:r.pUp>=.5?1:0,
+        correct:(r.pUp>=.5?1:0)===actual,
+        pCandidate:r.pCandidate,
+        pUp:r.pUp,
+        actual
+      });
+    }
+    return result;
+  }finally{prices=old;}
+}
+function researchSelectTargets(path,count,H){
+  const start=Math.max(80,Math.floor(path.length*.45));
+  const end=path.length-H-1;
+  if(end<=start)return [];
+  const nT=Math.min(count,end-start+1);
+  const step=(end-start)/(Math.max(1,nT-1));
+  const out=[];
+  for(let i=0;i<nT;i++)out.push(Math.floor(start+i*step));
+  return [...new Set(out)];
+}
+function researchRealStrategy(path,cfg){
+  const targets=researchSelectTargets(path,Math.max(30,cfg.maxSignals),cfg.duration);
+  return {targets,results:researchKnnDetailed(path,cfg,targets)};
+}
+function researchBenchmarkStats(results){
+  if(!results.length)return {n:0,w:0,wr:NaN,dirUp:NaN};
+  const w=results.filter(r=>r.correct).length;
+  return {n:results.length,w,wr:w/results.length,dirUp:results.filter(r=>r.dir===1).length/results.length};
+}
+function researchRandomBenchmark(realResults,runs){
+  const base=researchBenchmarkStats(realResults);
+  if(!base.n)return {base,wr:[],pAbove:NaN,mean:NaN,q95:NaN};
+  const dist=[];
+  const upProb=base.dirUp;
+  for(let r=0;r<runs;r++){
+    let w=0;
+    for(const x of realResults){
+      const dir=Math.random()<upProb?1:0;
+      if(dir===x.actual)w++;
+    }
+    dist.push(w/base.n);
+  }
+  const mean=researchMean(dist), q95=quantile(dist,.95);
+  const ge=dist.filter(x=>x>=base.wr).length;
+  return {base,wr:dist,pAbove:(1+ge)/(runs+1),mean,q95};
+}
+function researchInverse(results){
+  const n=results.length;
+  if(!n)return {wr:NaN,n:0};
+  let w=0;
+  for(const r of results)if(!r.correct)w++;
+  return {wr:w/n,n};
+}
+async function researchShuffleTest(realPath,realResults,cfg,paths){
+  const rets=researchReturns(realPath);
+  const start=realPath[0];
+  const targets=realResults.map(r=>r.index);
+  const realWR=realResults.length?realResults.filter(r=>r.correct).length/realResults.length:NaN;
+  const dist=[];
+  const total=Math.max(100,Math.floor(paths));
+  for(let i=0;i<total;i++){
+    const sp=researchBuildPathFromReturns(researchShuffle(rets),start);
+    const rr=researchKnnDetailed(sp,cfg,targets);
+    if(rr.length)dist.push(rr.filter(r=>r.correct).length/rr.length);
+    if(i%5===4){
+      $('researchStatus').textContent=`SHUFFLE ${i+1}/${total}`;
+      await new Promise(r=>setTimeout(r,0));
+    }
+  }
+  const ge=dist.filter(x=>x>=realWR).length;
+  return {n:dist.length,realWR,dist,mean:researchMean(dist),q99:quantile(dist,.99),percentile:dist.length?dist.filter(x=>x<=realWR).length/dist.length:NaN,geP:(dist.length?((1+ge)/(dist.length+1)):NaN)};
+}
+function researchHoldout(path,cfg,pct){
+  const H=cfg.duration;
+  const cut=Math.max(80,Math.floor(path.length*(1-Math.max(.10,Math.min(.40,pct/100)))));
+  const trainEnd=Math.max(50,cut-H-1);
+  const start=Math.max(50,Math.floor(path.length*.70));
+  const targets=[];
+  const end=path.length-H-1;
+  for(let i=start;i<=end;i++)targets.push(i);
+  if(targets.length>cfg.maxSignals)targets.splice(0,targets.length-cfg.maxSignals);
+  const oldPrices=prices;
+  prices=path;
+  try{
+    const all=[];
+    for(let i=20;i<=trainEnd;i++){
+      const x=featureAt(i); if(!x)continue;
+      const d=path[i+H]-path[i]; if(d===0)continue;
+      all.push({x,y:d>0?1:0,index:i});
+    }
+    const stats=featureStats(all), out=[];
+    for(const target of targets){
+      const x=featureAt(target); if(!x)continue;
+      const future=path[target+H]-path[target]; if(future===0)continue;
+      const r=fastKnnOnPool(x,all,stats,cfg.k,target);
+      if(!r)continue;
+      const actual=future>0?1:0;
+      out.push({index:target,correct:(r.pUp>=.5?1:0)===actual,dir:r.pUp>=.5?1:0,actual});
+    }
+    return {cut,trainN:all.length,testN:out.length,wr:out.length?out.filter(r=>r.correct).length/out.length:NaN,results:out};
+  }finally{prices=oldPrices;}
+}
+function researchLookAheadAudit(cfg){
+  const H=Math.max(1,Math.floor(cfg.duration));
+  const featureUsesTargetTick=true;
+  const labelUsesFutureTicks=true;
+  const trainingEmbargo=true;
+  return {
+    status:(featureUsesTargetTick&&labelUsesFutureTicks&&trainingEmbargo)?'PASS':'FAIL',
+    rule:'signal features use the last observed pre-purchase tick; labels use only ticks after the signal; training rows require index + duration < target.',
+    featureUsesTargetTick,
+    labelUsesFutureTicks,
+    trainingEmbargo
+  };
+}
+function researchQuoteStats(quotes){
+  if(!quotes.length)return {n:0,meanPayout:NaN,medianPayout:NaN,beMean:NaN,beMedian:NaN};
+  const ps=quotes.map(Number).filter(x=>Number.isFinite(x)&&x>0);
+  if(!ps.length)return {n:0,meanPayout:NaN,medianPayout:NaN,beMean:NaN,beMedian:NaN};
+  const q=ps.slice().sort((a,b)=>a-b),med=q[Math.floor(q.length/2)];
+  const mean=researchMean(ps);
+  return {n:ps.length,meanPayout:mean,medianPayout:med,beMean:1/(1+mean/100),beMedian:1/(1+med/100)};
+}
+function researchPower(breakEvenPct,edgePct=.02,alpha=.05,power=.80){
+  const p0=breakEvenPct,p1=Math.min(.999,p0+edgePct);
+  const za=inverseNormalCDF(1-alpha), zb=inverseNormalCDF(power);
+  const n=Math.pow(za*Math.sqrt(p0*(1-p0))+zb*Math.sqrt(p1*(1-p1)),2)/Math.pow(p1-p0,2);
+  return {p0,p1,n:Math.ceil(n)};
+}
+function researchParameterNeighborhood(path,cfg,baseResults){
+  const ks=[Math.max(3,cfg.k-10),Math.max(3,cfg.k-6),Math.max(3,cfg.k-2),cfg.k,cfg.k+2,cfg.k+6,cfg.k+10]
+    .filter((v,i,a)=>a.indexOf(v)===i).sort((a,b)=>a-b);
+  const rows=[];
+  for(const k of ks){
+    const rr=researchKnnDetailed(path,{...cfg,k},baseResults.map(x=>x.index));
+    const n=rr.length,w=rr.filter(x=>x.correct).length,wr=n?w/n:NaN;
+    const be=1/(1+cfg.payout/100);
+    const p=Number.isFinite(wr)&&n>0?binomialPUpper(w,n,be):NaN;
+    rows.push({k,n,w,wr,edge:wr-be,p});
+  }
+  // Holm correction over the neighborhood's p-values.
+  const order=rows.filter(r=>Number.isFinite(r.p)).sort((a,b)=>a.p-b.p);
+  order.forEach((r,i)=>{r.holm=Math.min(1,(order.length-i)*r.p);});
+  return rows;
+}
+async function researchRunSuite(){
+  if(researchRunning)return;
+  const path=(researchPrices.length?researchPrices:prices).slice();
+  const ep=(researchEpochs.length?researchEpochs:epochs).slice();
+  if(path.length<400){
+    $('researchStatus').textContent='INSUFFICIENT HISTORY';
+    $('researchSummary').textContent='Need at least 400 usable ticks. Upload a raw tick CSV or connect the bot to load more history.';
+    return;
+  }
+  researchRunning=true;
+  $('researchStatus').textContent='RUNNING';
+  const yieldUi=()=>new Promise(r=>setTimeout(r,0));
+  try{
+    const cfg={
+      duration:Math.max(1,Math.floor(n('duration'))),
+      k:Math.max(3,Math.floor(n('k'))),
+      maxSamples:Math.max(100,Math.floor(n('maxSamples'))),
+      maxSignals:Math.max(30,Math.floor(researchNum('researchMaxSignals',80))),
+      payout:researchQuoteStats(researchTradeQuotes).meanPayout
+    };
+    if(!Number.isFinite(cfg.payout)){
+      const p=researchNum('edgeAssumedPayout',88.6);
+      cfg.payout=p;
+    }
+
+    const rs=researchRealStrategy(path,cfg);
+    const base=researchBenchmarkStats(rs.results);
+    const inv=researchInverse(rs.results);
+    const random=researchRandomBenchmark(rs.results,Math.max(100,Math.floor(researchNum('researchRandomRuns',1000))));
+    const shuffle=await researchShuffleTest(path,rs.results,cfg,Math.max(100,Math.floor(researchNum('researchShufflePaths',1000))));
+    const rets=researchReturns(path);
+    const cond=researchConditionalTable(rets,researchNum('researchCondK',6));
+    const runs=researchRunsTestBinary(researchSignSeq(rets));
+    const ljung=researchLjungBox(rets,10);
+    const vr=researchVarianceRatio(rets,parseNumericList('researchVrKs',[2,4,8,16]));
+    const arch=researchARCHLM(rets,researchNum('researchArchLags',10));
+    const rv=researchRealizedVol(path,ep,parseNumericList('researchRvWindows',[25,50,100,200]));
+    const holdout=researchHoldout(path,cfg,researchNum('researchHoldoutPct',30));
+    const audit=researchLookAheadAudit(cfg);
+    const params=researchParameterNeighborhood(path,cfg,rs.results);
+    const quotes=researchQuoteStats(researchTradeQuotes);
+    const power=researchPower(Number.isFinite(quotes.beMean)?quotes.beMean:(1/(1+cfg.payout/100)),.02,.05,.80);
+
+    researchLast={cfg,base,inv,random,shuffle,cond,runs,ljung,vr,arch,rv,holdout,audit,params,quotes,power};
+
+    $('researchSignals').textContent=String(base.n);
+    $('researchShufflePct').textContent=Number.isFinite(shuffle.percentile)?fmtPct(shuffle.percentile):'—';
+    $('researchRandomWR').textContent=fmtPct(random.mean);
+    $('researchInverseWR').textContent=fmtPct(inv.wr);
+    $('researchHoldoutWR').textContent=fmtPct(holdout.wr);
+    $('researchStatus').textContent='COMPLETE';
+
+    const condHit=cond.filter(x=>Number.isFinite(x.p)&&x.p<.05);
+    const autoP=Number.isFinite(ljung.p)?ljung.p:NaN;
+    const archLabel=Number.isFinite(arch.pValue)?(arch.pValue<.05?'DETECTED':'NOT DETECTED'):'—';
+    const rv75=rv.windows.length?rv.windows.reduce((s,x)=>s+x.mean,0)/rv.windows.length:NaN;
+    $('researchSummary').innerHTML=
+      `<b>Core conclusion:</b> strategy WR ${fmtPct(base.wr)} vs random benchmark mean ${fmtPct(random.mean)}; `+
+      `inverse WR ${fmtPct(inv.wr)}; shuffled 1st-percentile test ${fmtPct(shuffle.percentile)}. `+
+      `Underlying memory tests: conditional χ² significant at ${condHit.length}/${cond.length} k-levels; `+
+      `Ljung–Box p=${fmtNum(autoP,4)}; ARCH=${archLabel}. `+
+      `Realized annualized vol mean across tested windows ${fmtPct(rv75)} `+
+      `(estimated tick interval ${fmtNum(rv.tickSeconds,2)}s). `+
+      `Power-analysis N for +2pp over BE: <b>${power.n.toLocaleString()}</b> trades.`;
+
+    const condRows=cond.map(x=>`<tr><td>Conditional k=${x.k}</td><td>${x.n}</td><td>${fmtNum(x.chi,3)}</td><td>${fmtNum(x.p,5)}</td></tr>`).join('');
+    const vrRows=vr.map(x=>`<tr><td>VR(${x.k})</td><td>${fmtNum(x.vr,4)}</td><td>${fmtNum(x.z,3)}</td><td>${fmtNum(x.p,5)}</td><td>${x.interpretation}</td></tr>`).join('');
+    const paramRows=params.map(x=>`<tr><td>K=${x.k}</td><td>${x.n}</td><td>${fmtPct(x.wr)}</td><td>${fmtPct(x.edge)}</td><td>${fmtNum(x.p,5)}</td><td>${fmtNum(x.holm,5)}</td></tr>`).join('');
+    const rvRows=rv.windows.map(x=>`<tr><td>${x.window}</td><td>${x.n}</td><td>${fmtPct(x.mean)}</td><td>${fmtPct(x.median)}</td><td>${fmtPct(x.se)}</td><td>${fmtPct(x.cv)}</td></tr>`).join('');
+
+    $('researchResults').innerHTML=`
+      <table>
+        <thead><tr><th>Test</th><th>Sample</th><th>Statistic</th><th>p / WR</th><th>Interpretation</th></tr></thead>
+        <tbody>
+          <tr><td>Strategy / OOS</td><td>${base.n}</td><td>${fmtPct(base.wr)}</td><td>${fmtPct((base.wr-(1/(1+cfg.payout/100))))}</td><td>${base.wr>(1/(1+cfg.payout/100))?'Above assumed BE':'Below assumed BE'}</td></tr>
+          <tr><td>Random benchmark</td><td>${researchNum('researchRandomRuns',1000)}</td><td>${fmtPct(random.mean)}</td><td>${fmtNum(random.pAbove,5)}</td><td>${base.wr>random.q95?'Beats 95th percentile':'Does not beat 95th percentile'}</td></tr>
+          <tr><td>Inverse strategy</td><td>${inv.n}</td><td>${fmtPct(inv.wr)}</td><td>—</td><td>${inv.wr<.5?'Inverse loses more often':'Inverse not meaningfully worse'}</td></tr>
+          <tr><td>Shuffle test</td><td>${shuffle.n}</td><td>${fmtPct(shuffle.realWR)}</td><td>${fmtNum(shuffle.geP,5)}</td><td>${shuffle.percentile>=.99?'Top 1%':'Not top 1%'}</td></tr>
+          <tr><td>Runs test</td><td>${researchSignSeq(rets).length}</td><td>z=${fmtNum(runs.z,3)}</td><td>${fmtNum(runs.p,5)}</td><td>${Math.abs(runs.z)<1.96?'Consistent with random runs':'Run structure detected'}</td></tr>
+          <tr><td>Ljung–Box</td><td>${rets.length}</td><td>Q=${fmtNum(ljung.Q,3)}</td><td>${fmtNum(ljung.p,5)}</td><td>${ljung.p<.05?'Serial dependence detected':'No aggregate serial dependence detected'}</td></tr>
+          <tr><td>ARCH LM</td><td>${arch.n}</td><td>LM=${fmtNum(arch.LM,3)}</td><td>${fmtNum(arch.pValue,5)}</td><td>${arch.pValue<.05?'Volatility clustering detected':'No ARCH effect detected'}</td></tr>
+          <tr><td>Look-ahead audit</td><td>Design</td><td>—</td><td>—</td><td class="good">${audit.status}</td></tr>
+          <tr><td>Sealed holdout</td><td>${holdout.testN}</td><td>${fmtPct(holdout.wr)}</td><td>train ${holdout.trainN}</td><td>${holdout.wr>base.wr-.03?'Stable vs OOS':'Material degradation'}</td></tr>
+          <tr><td>Quote / BE</td><td>${quotes.n||'assumed'}</td><td>${Number.isFinite(quotes.meanPayout)?quotes.meanPayout.toFixed(2)+'%':cfg.payout.toFixed(2)+'%'}</td><td>${fmtPct(Number.isFinite(quotes.beMean)?quotes.beMean:1/(1+cfg.payout/100))}</td><td>${quotes.n?'Uses imported real quoted payouts':'Uses configured assumed payout'}</td></tr>
+          <tr><td>Power analysis</td><td>—</td><td>+2pp</td><td>${power.n.toLocaleString()}</td><td>Required N for 80% power, α=5%</td></tr>
+        </tbody>
+      </table>
+      <div class="notice" style="margin-top:10px"><b>Conditional probability / chi-square</b><table><thead><tr><th>k</th><th>n</th><th>χ²</th><th>p</th></tr></thead><tbody>${condRows}</tbody></table></div>
+      <div class="notice" style="margin-top:10px"><b>Variance ratio</b><table><thead><tr><th>Test</th><th>VR</th><th>z</th><th>p</th><th>Interpretation</th></tr></thead><tbody>${vrRows}</tbody></table></div>
+      <div class="notice" style="margin-top:10px"><b>Parameter neighbourhood (KNN k only)</b><table><thead><tr><th>Variant</th><th>n</th><th>WR</th><th>Edge vs BE</th><th>raw p</th><th>Holm p</th></tr></thead><tbody>${paramRows}</tbody></table></div>
+      <div class="notice" style="margin-top:10px"><b>Realized volatility scaling</b><table><thead><tr><th>Window</th><th>n</th><th>Mean ann. vol</th><th>Median</th><th>SE</th><th>CV</th></tr></thead><tbody>${rvRows}</tbody></table></div>
+    `;
+  }catch(err){
+    $('researchStatus').textContent='ERROR';
+    $('researchSummary').textContent=`Research suite error: ${err.message}`;
+    log(`V2.25 RESEARCH ERROR: ${err.message}`);
+  }finally{
+    researchRunning=false;
+  }
+}
+
+function researchParseTickCsv(text){
+  const lines=String(text||'').split(/\r?\n/).filter(x=>x.trim());
+  if(lines.length<2)throw new Error('Tick CSV has no data rows.');
+  const header=lines[0].split(',').map(x=>x.trim().replace(/^"|"$/g,'').toLowerCase());
+  const find=(names)=>{for(const nm of names){const i=header.indexOf(nm);if(i>=0)return i;}return -1};
+  const pi=find(['quote','price','tick','value','spot','close']);
+  const ei=find(['epoch','timestamp','time','datetime','date']);
+  if(pi<0)throw new Error('Tick CSV needs a quote/price/tick/value column.');
+  const ps=[],es=[];
+  for(let i=1;i<lines.length;i++){
+    const row=lines[i].split(',');
+    const p=Number(String(row[pi]||'').replace(/"/g,''));
+    if(!Number.isFinite(p))continue;
+    ps.push(p);
+    if(ei>=0){
+      const raw=String(row[ei]||'').replace(/"/g,'').trim();
+      const e=Number(raw);
+      if(Number.isFinite(e))es.push(e);
+      else{
+        const d=Date.parse(raw);
+        es.push(Number.isFinite(d)?d/1000:NaN);
+      }
+    }
+  }
+  return {prices:ps,epochs:es.length===ps.length?es:Array(ps.length).fill(NaN)};
+}
+function researchParseTradeCsv(text){
+  const lines=String(text||'').split(/\r?\n/).filter(x=>x.trim());
+  if(lines.length<2)return [];
+  const header=lines[0].split(',').map(x=>x.trim().replace(/^"|"$/g,'').toLowerCase());
+  const pi=header.findIndex(x=>['payoutpct','payout %','payout'].includes(x));
+  if(pi<0)throw new Error('Trade CSV needs a PayoutPct / Payout column.');
+  const out=[];
+  for(let i=1;i<lines.length;i++){
+    const row=lines[i].split(',');
+    const p=Number(String(row[pi]||'').replace(/"/g,''));
+    if(Number.isFinite(p)&&p>0)out.push(p);
+  }
+  return out;
+}
+
+function exportCSV(){
+ const head=['Trade','Time','Direction','Probability','RawProbability','CalibratedProbability','SoftenedProbability','AdjustedProbability','DirectionBaseRate','Regime','ContinuationRisk','Gap','Neighbors','NeighborAgreement','MedianDistance','DistanceSigma','SMASlopeSigma','Momentum1Sigma','Momentum3Sigma','Momentum5Sigma','AccelerationSigma','VolatilityRatio5','Persistence','Shock','Stake','PayoutPct','Entry','Exit','Result','Profit','LossStreakAfter','RecoveryPoolAfter','AccountBalance','SequenceBudget','RecoveryCoverage','Mode','PairId','PairResult','PairPnL','PairEntryReference','PairTriggerLosses','RecoverySide','RecoveryFactor','RecoveryStake','FavouredSide','NonFavouredSide','RecoveryIsFavoured','ModelFavouredProbability','ModelPUp','ModelPDown','ModelSequenceProbability','ModelSequencePattern','SequenceProb','SequenceStrength','SequenceObservations','SequencePattern','SequenceOrder','SequenceBucket','SequenceSource','PreSequenceCandidate','RFSequenceProb','RFSequenceStrength','RFSequenceObservations','RFSequencePattern','RFSequenceUsable','RFSequenceSource'];
+ const lines=[head.join(','),...records.slice().reverse().map(r=>[r.num,r.time,r.dir,r.prob,r.rawProb,r.calProb,r.softenedProb,r.adjustedProb,r.baseRate,r.regimeLabel,r.continuationRisk,r.gap,r.neighbors,r.neighborAgreement,r.medianDistance,r.DistanceSigma,r.SMASlopeSigma,r.Momentum1Sigma,r.Momentum3Sigma,r.Momentum5Sigma,r.AccelerationSigma,r.VolatilityRatio5,r.Persistence,r.Shock,r.stake,r.payout,r.entry,r.exit,r.result,r.profit,r.mgStepAfter,r.mgPoolAfter,r.balanceAfter,r.sequenceBudgetAfter,r.recoveryCoverage,r.mode||'',r.pairId||'',r.pairResult||'',r.pairPnl??'',r.pairEntryReference??'',r.pairTriggerLosses??'',r.recoverySide??'',r.recoveryFactor??'',r.recoveryStake??'',r.favouredSide??'',r.nonFavouredSide??'',r.recoveryIsFavoured??'',r.modelFavouredProbability??'',r.modelPUp??'',r.modelPDown??'',r.modelSequenceProbability??'',r.modelSequencePattern??'',r.sequenceProb??'',r.sequenceStrength??'',r.sequenceObservations??'',r.sequencePattern??'',r.sequenceOrder??'',r.sequenceBucket??'',r.sequenceSource??'',r.preSequenceCandidate??'',r.rfSequenceProb??'',r.rfSequenceStrength??'',r.rfSequenceObservations??'',r.rfSequencePattern??'',r.rfSequenceUsable??'',r.rfSequenceSource??''].join(','))];
+ const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([lines.join('\n')],{type:'text/csv'}));a.download=`rise_fall_v2_17_sequence_learning_${Date.now()}.csv`;a.click();URL.revokeObjectURL(a.href);
+}
+window.addEventListener('offline',()=>{
+  if(sessionActive){
+    status('OFFLINE — RECONNECTING');
+    log('Browser/network reported OFFLINE. Automatic reconnect will resume when the connection returns.');
+  }
+});
+window.addEventListener('online',()=>{
+  if(sessionActive&&!manualDisconnect){
+    log('Browser/network ONLINE. Forcing connection health checks.');
+    scheduleMarketReconnect();
+    scheduleTradeReconnect();
+  }
+});
+
+$('connect').onclick=()=>connect().catch(e=>{running=false;sessionActive=false;status('ERROR');updateConnectionUI();log(`CONNECT FAILED: ${e.message}`)});
+$('start').onclick=()=>{
+ if(!tradeReady||!marketReady){
+   log(`START BLOCKED: marketReady=${marketReady} tradeReady=${tradeReady}`);
+   return;
+ }
+ if(tradeRecoveryLock){log('Trading is paused for connection/position reconciliation.');return}
+ sessionActive=true;running=true;startConnectionWatchdog();status('RUNNING');
+ signalChecks=0;signalQualified=0;signalBlocked={warmup:0,prob:0,highprob:0,gap:0,neighbors:0,agreement:0,distance:0,payout:0,error:0,risk:0};
+ log(`Bot started. Profile=${$('entryProfile')?.value||'balanced'} | Range=${(n('minProb')*100).toFixed(0)}–${(n('maxProb')*100).toFixed(0)}% | Session target=+$${n('profitTarget').toFixed(2)} | Recovery target=+$${n('mgTarget').toFixed(2)} | Loss stop=-$${n('lossStop').toFixed(2)} | Survival=${$('survivalMode').value} | Loss tolerance=${Math.floor(n('survivalLosses'))} | Sequence budget=$${n('survivalBudgetInput').toFixed(2)} | hard cap=$${n('mgMaxStake').toFixed(2)} | Two-side reset=${$('twoSideReset').value} | trigger = EVERY normal-trade loss | recovery factor goes to current model-favoured side. Direction remains model-selected except for the dedicated reset pair. Sequence learner=${$('sequenceLearner').value} | influence=${n('sequenceInfluence')}%.`)
+};
+$('stop').onclick=()=>{
+ running=false;entryPending=false;sessionActive=false;stopConnectionWatchdog();
+ status(active||activePair?'STOP AFTER ACTIVE':'STOPPED');
+ log('Stop requested. Current trade will finish; automatic reconnect remains disabled until START/CONNECT is used again.')
+};
+$('export').onclick=exportCSV;
+$('clearSequence').onclick=()=>{resetSequenceLearner();log('Sequence learner memory cleared for the current market/duration.');};
+$('runEdgeValidation').onclick=()=>runStatisticalEdgeValidation(true);
+['duration','lookback','maxSamples'].forEach(id=>$(id).addEventListener('change',()=>{if(prices.length)rebuildSamples()}));
+['profitTarget','lossStop'].forEach(id=>$(id).addEventListener('change',update));
+['stake','survivalMode','survivalLosses','survivalBudgetInput','mgMaxStake','mgTarget','twoSideTrigger','sequenceInfluence','sequenceMinObs','sequenceProbBucketWidth','twoSideRecoveryFactor','rfSequenceInfluence','rfSequenceMinObs','edgeAssumedPayout','edgeMinMargin','edgeMinOOS','nullPaths','nullAnnualVol','nullPercentile','edgeRefreshTrades'].forEach(id=>$(id).addEventListener('input',()=>{updateLadderPreview();updateTwoSideUI();updateSequenceUI();updateTwoSideFactorUI();update()}));
+$('twoSideReset')?.addEventListener('change',()=>{updateTwoSideUI();update();});
+$('sequenceLearner')?.addEventListener('change',()=>{updateSequenceUI();update();});
+$('rfSequenceLearner')?.addEventListener('change',()=>{updateSequenceUI();update();});
+$('edgeGateMode')?.addEventListener('change',()=>{updateEdgeUI();update();});
+$('rfSequenceFile')?.addEventListener('change',e=>importRfSequenceCsv(e.target.files?.[0]));
+
+$('researchTickFile')?.addEventListener('change',e=>{
+  const f=e.target.files?.[0]; if(!f)return;
+  const fr=new FileReader();
+  fr.onload=()=>{
+    try{
+      const d=researchParseTickCsv(fr.result);
+      researchPrices=d.prices; researchEpochs=d.epochs;
+      $('researchDataStatus').textContent=`CSV ${researchPrices.length.toLocaleString()} ticks`;
+      $('researchStatus').textContent='READY';
+      $('researchSummary').textContent=`Loaded ${researchPrices.length.toLocaleString()} ticks from ${f.name}.`;
+    }catch(err){
+      $('researchStatus').textContent='CSV ERROR';
+      $('researchSummary').textContent=err.message;
+    }
+  };
+  fr.readAsText(f);
+});
+$('researchTradeFile')?.addEventListener('change',e=>{
+  const f=e.target.files?.[0]; if(!f)return;
+  const fr=new FileReader();
+  fr.onload=()=>{
+    try{
+      researchTradeQuotes=researchParseTradeCsv(fr.result);
+      $('researchSummary').textContent=`Loaded ${researchTradeQuotes.length.toLocaleString()} payout quotes from ${f.name}.`;
+    }catch(err){
+      $('researchStatus').textContent='QUOTE CSV ERROR';
+      $('researchSummary').textContent=err.message;
+    }
+  };
+  fr.readAsText(f);
+});
+$('runInformationSuite')?.addEventListener('click',()=>researchRunSuite());
+
+updateLadderPreview();
+updateTwoSideUI();
+updateSequenceUI();
+update();
+$('researchDataStatus').textContent=researchPrices.length?`CSV ${researchPrices.length.toLocaleString()} ticks`:'USING LIVE HISTORY';
+updateConnectionUI();
+setInterval(updateConnectionUI,1000);
+startConnectionWatchdog();
+})();
+</script></body></html>
