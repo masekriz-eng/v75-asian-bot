@@ -1,0 +1,1308 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Deriv Rise/Fall KNN Bot V2.9 Stable Connection</title>
+<style>
+:root{font-family:Inter,system-ui,Arial,sans-serif;color-scheme:dark;background:#0b1020;color:#e8edf7}
+*{box-sizing:border-box} body{margin:0;padding:20px;background:#0b1020}
+.wrap{max-width:1280px;margin:auto}.card{background:#121a2c;border:1px solid #26324d;border-radius:14px;padding:16px;margin-bottom:14px}
+h1{margin:0 0 4px;font-size:24px}.sub{margin:0;color:#9fb0cf;font-size:13px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+label{font-size:12px;color:#aebbd4;display:flex;flex-direction:column;gap:5px}
+input,select,button{border:1px solid #34415e;border-radius:9px;background:#0d1425;color:#fff;padding:10px;font:inherit}
+button{cursor:pointer;font-weight:700}.primary{background:#2258d5}.danger{background:#7f2631}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.metric{background:#0d1425;border-radius:10px;padding:10px;min-width:125px}
+.metric span{display:block;color:#8fa2c4;font-size:11px}.metric b{font-size:18px}
+.good{color:#72e6a5}.bad{color:#ff8793}.warn{color:#ffd36b}
+#log{height:220px;overflow:auto;white-space:pre-wrap;background:#070b14;padding:10px;border-radius:9px;font:12px ui-monospace,monospace}
+table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:7px;border-bottom:1px solid #26324d;text-align:right}th:first-child,td:first-child{text-align:left}
+.notice{font-size:12px;color:#aebbd4;line-height:1.5}
+</style>
+</head>
+<body><div class="wrap">
+<div class="card">
+<h1>Deriv Rise/Fall KNN Bot V2.9 — Stable Connection</h1>
+<p class="sub">Clean fixed-stake research build • CALL/PUT • payout-aware entry • no martingale • KNN learns directly from historical and live tick paths.</p>
+</div>
+
+<div class="card grid">
+<label>App ID<input id="appId" value="34BpyfKiEsqmHbsK4AP9h" placeholder="Deriv App ID"></label>
+<label>Account type<select id="accountType"><option value="demo">Demo</option><option value="real">Real</option></select></label>
+<label>Demo account ID<input id="demoAccountId" value="DOT94618672" placeholder="e.g. VRTC..."></label>
+<label>Real account ID<input id="realAccountId" placeholder="e.g. CR..."></label>
+<label>PAT / token<input id="pat" type="password" placeholder="Deriv PAT"></label>
+<label>Market<select id="symbol">
+<option value="1HZ75V">Volatility 75 (1s)</option><option value="1HZ10V">Volatility 10 (1s)</option>
+<option value="1HZ25V">Volatility 25 (1s)</option><option value="1HZ50V">Volatility 50 (1s)</option>
+<option value="1HZ100V">Volatility 100 (1s)</option><option value="R_75">Volatility 75</option>
+<option value="R_10">Volatility 10</option><option value="R_25">Volatility 25</option>
+<option value="R_50">Volatility 50</option><option value="R_100">Volatility 100</option>
+</select></label>
+<label>Duration (ticks)<input id="duration" type="number" min="1" max="100" value="5"></label>
+<label>Base stake USD<input id="stake" type="number" min=".35" step=".01" value="1"></label>
+<label>Martingale<select id="mgMode">
+<option value="factor">Fixed factor — deterministic</option>
+<option value="payout" selected>Payout-aware recovery</option>
+<option value="off">OFF</option>
+</select></label>
+<label>Martingale factor<input id="mgFactor" type="number" min="1" step=".1" value="2.2"></label>
+<label>Max martingale steps<input id="mgMax" type="number" min="0" max="12" step="1" value="5"></label>
+<label>Recovery target profit USD<input id="mgTarget" type="number" min="0" step=".01" value="1.2"></label>
+<label>Max stake USD<input id="mgMaxStake" type="number" min=".35" step=".01" value="50"></label><div class="metric" style="grid-column:span 2"><span>Martingale ladder</span><b id="ladderPreview" style="font-size:14px">—</b></div>
+<label>Entry profile<select id="entryProfile">
+<option value="balanced" selected>Balanced — recommended</option>
+<option value="strict">Strict — fewer trades</option>
+<option value="explore">Explore — diagnostic</option>
+</select></label>
+<label>Minimum probability<input id="minProb" type="number" min=".50" max=".99" step=".01" value=".65"></label>
+<label>Maximum probability<input id="maxProb" type="number" min=".50" max=".99" step=".01" value=".75"></label>
+<label>Minimum payout %<input id="minPayout" type="number" min="0" max="1000" step="1" value="50"></label>
+<label>KNN path length<input id="lookback" type="number" min="5" max="50" value="12"></label>
+<label>K neighbors<input id="k" type="number" min="3" max="99" step="2" value="21"></label>
+<label>Minimum probability gap<input id="minGap" type="number" min="0" max=".49" step=".01" value=".04"></label>
+<label>Calibration prior strength<input id="calPrior" type="number" min="1" max="200" step="1" value="30"></label>
+
+<label>Max training samples<input id="maxSamples" type="number" min="100" max="5000" step="100" value="1500"></label>
+<label>Max trades<input id="maxTrades" type="number" min="1" value="200"></label>
+<label>Session target profit USD<input id="profitTarget" type="number" min="0" step=".01" value="200"></label><div class="notice" style="grid-column:span 2">Session target is the hard stop for the entire trading session at the configured realized P/L. Recovery target is used only by <b>Payout-aware recovery</b> to determine the profit the recovery trade should add after recovering accumulated losses.</div>
+<label>Session loss stop USD<input id="lossStop" type="number" min="0" step=".01" value="50"></label>
+<label>Consecutive-loss pause<select id="lossPauseEnabled"><option value="on" selected>ON — pause after 2 losses</option><option value="off">OFF</option></select></label>
+<label>Auto-switch market<select id="autoSwitch"><option value="on" selected>ON — switch after 2-loss pause</option><option value="off">OFF — remain paused</option></select></label>
+<label>Auto-switch minimum trades<input id="switchMinTrades" type="number" min="15" max="100" step="1" value="15"></label>
+<label>Auto-switch markets<input id="switchMarkets" value="1HZ75V,1HZ100V,1HZ50V,1HZ25V,1HZ10V,1HZ90V,1HZ30V,1HZ15V"></label>
+<label>Cross-market pre-start warm-up<select id="preStartWarmup"><option value="off" selected>OFF</option><option value="on">ON — qualify before starting</option></select></label>
+<label>Warm-up trades required<input id="warmupTrades" type="number" min="1" max="500" step="1" value="30"></label>
+<label>Real trading arm<select id="realArm"><option value="off">OFF</option><option value="on">ARM REAL TRADING</option></select></label>
+</div>
+
+<div class="card row">
+<button id="connect" class="primary">CONNECT + LOAD HISTORY</button>
+<button id="start" class="primary">START BOT</button>
+<button id="stop" class="danger">STOP</button>
+<button id="export">EXPORT CSV</button>
+<div class="metric"><span>Status</span><b id="status">IDLE</b></div><div class="metric"><span>Market link</span><b id="marketLink">OFF</b></div>
+<div class="metric"><span>Trade link</span><b id="tradeLink">OFF</b></div>
+<div class="metric"><span>Reconnects</span><b id="reconnects">0</b></div>
+<div class="metric"><span>Tick age</span><b id="tickAge">—</b></div>
+</div>
+
+<div class="card row">
+<div class="metric"><span>Price</span><b id="price">—</b></div>
+<div class="metric"><span>P(RISE)</span><b id="pUp">50.0%</b></div>
+<div class="metric"><span>P(FALL)</span><b id="pDown">50.0%</b></div>
+<div class="metric"><span>Model direction</span><b id="direction">—</b></div>
+<div class="metric"><span>KNN samples</span><b id="samples">0</b></div>
+<div class="metric"><span>Trades</span><b id="trades">0</b></div>
+<div class="metric"><span>Wins</span><b id="wins">0</b></div>
+<div class="metric"><span>Losses</span><b id="losses">0</b></div>
+<div class="metric"><span>Consecutive losses</span><b id="consecutiveLosses">0</b></div>
+<div class="metric"><span>Market WR (15)</span><b id="marketWR">—</b></div>
+<div class="metric"><span>Best market</span><b id="bestMarket">—</b></div>
+<div class="metric"><span>Pre-start warm-up</span><b id="warmupProgress">OFF</b></div>
+<div class="metric"><span>Win rate</span><b id="wr">—</b></div>
+<div class="metric"><span>Session P/L</span><b id="pnl">$0.00</b></div>
+<div class="metric"><span>Session target</span><b id="targetStatus">$10.00</b></div>
+<div class="metric"><span>Recovery target</span><b id="recoveryTargetStatus">$0.00</b></div><div class="metric"><span>MG step</span><b id="mgStep">0</b></div><div class="metric"><span>Recovery pool</span><b id="mgPool">$0.00</b></div>
+</div>
+
+<div class="card">
+<p class="notice"><b>Entry logic:</b> Market ticks use a dedicated public WebSocket; trading uses a separate authenticated WebSocket. Both connections are monitored and automatically reconnected while the session is active. SMA(5) slope + Momentum 3/5 + normalized distance + acceleration + volatility → KNN P(RISE)/P(FALL) → walk-forward calibration → choose higher-probability side → request a live Deriv proposal → calculate actual profit-on-stake payout → enter only when probability and payout both pass their thresholds. After a loss, the next model-approved trade can increase stake according to the selected martingale mode; a win resets to base. The model still chooses direction independently—no forced opposite trade.</p>
+<div class="notice" style="margin:8px 0"><b>Loss protection / auto-switch:</b> after 2 consecutive losses the bot pauses new entries. With auto-switch ON, it compares the latest 15 completed strategy trades for each configured market. It switches only to a different market that has at least 15 recorded trades and a higher rolling win rate. Otherwise the bot remains paused.</div>
+<div class="notice" style="margin:8px 0"><b>Pre-start cross-market warm-up:</b> when enabled, the selected market is not traded initially. The bot runs the same strategy in <b>paper mode</b> on the other configured markets, rotating through them one at a time, until the required number of completed warm-up trades is reached. Warm-up results are recorded for market-performance analysis, but do not affect session P/L, martingale recovery, consecutive-loss state, or the live session trade count. The bot then returns to the originally selected market, rebuilds its model, and starts normal trading.</div>
+<div class="notice" style="margin:8px 0">Stable connection layer: <b>market and trade sockets are independent</b>, trade OTP is renewed on reconnect, subscriptions are restored, heartbeats are monitored, and open positions are reconciled after trade-socket interruptions. V2.9 model: <b>9 scale-normalized features</b> (SMA distance/slope, M1/M3/M5, acceleration, volatility ratios, persistence, shock). KNN uses standardized feature distance + recency weighting. Walk-forward calibration uses an <b>outcome embargo</b> so labels whose expiry is not yet reached cannot enter a historical prediction. Entries also require reasonable neighbor agreement and distance, using an adaptive Balanced/Strict/Explore profile so the model cannot silently over-restrict itself.</div><div class="notice" id="modelDiag" style="margin:8px 0">Model diagnostics: waiting for data.</div><div id="log"></div>
+</div>
+
+<div class="card" style="overflow:auto"><table>
+<thead><tr><th>#</th><th>Time</th><th>Market</th><th>Dir</th><th>Prob</th><th>Stake</th><th>Payout %</th><th>Entry</th><th>Exit</th><th>Result</th><th>P/L</th></tr></thead>
+<tbody id="rows"></tbody></table></div>
+</div>
+<script>
+(()=>{
+'use strict';
+const API='https://api.derivws.com';
+const $=id=>document.getElementById(id);
+const n=id=>Number($(id).value);
+
+let market=null, trade=null, marketReq=1000, tradeReq=50000, mp=new Map(), tp=new Map();
+let prices=[], epochs=[], samples=[], trackers=[], running=false, active=null, records=[];
+let trades=0,wins=0,losses=0,pnl=0,lastSignalTick=-1,mgStep=0,mgLossPool=0,entryPending=false,signalChecks=0,signalQualified=0,signalBlocked={warmup:0,prob:0,highprob:0,gap:0,neighbors:0,agreement:0,distance:0,payout:0,error:0};
+let consecutiveLosses=0,lossPauseActive=false,autoSwitchBusy=false,lastAutoSwitchAt=0,marketPerformance={};
+let marketChanging=false;
+let warmupActive=false,warmupCompleted=0,warmupTarget=0,warmupOriginMarket='',warmupMarkets=[],warmupCursor=0,warmupActiveTrade=null;
+
+const PUBLIC='wss://api.derivws.com/trading/v1/options/ws/public';
+let manualDisconnect=false;
+let marketReady=false, tradeReady=false;
+let marketConnecting=false, tradeConnecting=false;
+let marketReconnectAttempts=0, tradeReconnectAttempts=0, reconnectCount=0;
+let marketReconnectTimer=null, tradeReconnectTimer=null;
+let watchdogTimer=null;
+let marketLastMessageAt=0, lastTickAt=0, tradeLastMessageAt=0;
+let tradeRecoveryLock=false, uncertainBuy=false;
+let sessionActive=false, sessionStartedAt=0;
+
+function log(s){$('log').textContent=`${new Date().toLocaleTimeString()}  ${s}\n`+$('log').textContent.slice(0,18000)}
+function status(s){$('status').textContent=s}
+function sym(){return $('symbol').value}
+
+function switchMarketList(){
+  return $('switchMarkets').value.split(',').map(x=>x.trim()).filter(Boolean).filter((x,i,a)=>a.indexOf(x)===i);
+}
+function strategyFingerprint(){
+  return [n('duration'),n('lookback'),n('k'),n('minProb'),n('maxProb'),n('minGap'),$('entryProfile')?.value||'balanced'].join('|');
+}
+function perfStorageKey(){return `deriv_risefall_market_perf_v1:${strategyFingerprint()}`;}
+function loadMarketPerformance(){
+  try{
+    const raw=localStorage.getItem(perfStorageKey());
+    const parsed=raw?JSON.parse(raw):{};
+    marketPerformance=parsed&&typeof parsed==='object'?parsed:{};
+  }catch{marketPerformance={};}
+}
+function saveMarketPerformance(){try{localStorage.setItem(perfStorageKey(),JSON.stringify(marketPerformance));}catch{}}
+function marketStats(symbol){
+  const arr=Array.isArray(marketPerformance[symbol])?marketPerformance[symbol]:[];
+  const last=arr.slice(-15),w=last.filter(x=>x==='W').length;
+  return {trades:last.length,wins:w,losses:last.length-w,winRate:last.length?w/last.length:0};
+}
+function recordMarketOutcome(symbol,result){
+  if(!symbol)return;
+  if(!Array.isArray(marketPerformance[symbol]))marketPerformance[symbol]=[];
+  marketPerformance[symbol].push(result==='WIN'?'W':'L');
+  if(marketPerformance[symbol].length>100)marketPerformance[symbol]=marketPerformance[symbol].slice(-100);
+  saveMarketPerformance();
+}
+function rankedEligibleMarkets(){
+  const minTrades=Math.max(15,Math.floor(n('switchMinTrades')||15));
+  return switchMarketList().map(symbol=>({...marketStats(symbol),symbol}))
+    .filter(x=>x.trades>=minTrades)
+    .sort((a,b)=>b.winRate-a.winRate||b.trades-a.trades);
+}
+function updateMarketPerformanceUI(){
+  const cur=marketStats(sym());
+  $('marketWR').textContent=cur.trades?`${(cur.winRate*100).toFixed(1)}% (${cur.trades})`:'—';
+  const ranked=rankedEligibleMarkets();
+  $('bestMarket').textContent=ranked.length?`${ranked[0].symbol} ${(ranked[0].winRate*100).toFixed(1)}%`:'—';
+  $('consecutiveLosses').textContent=String(consecutiveLosses);
+  $('consecutiveLosses').className=consecutiveLosses>=2?'bad':consecutiveLosses===1?'warn':'';
+}
+
+
+function updateConnectionUI(){
+ const ml=$('marketLink'), tl=$('tradeLink'), rc=$('reconnects'), ta=$('tickAge');
+ if(ml){ml.textContent=marketReady?'LIVE':'OFF';ml.className=marketReady?'good':'bad'}
+ if(tl){tl.textContent=tradeReady?'LIVE':'OFF';tl.className=tradeReady?'good':'bad'}
+ if(rc)rc.textContent=String(reconnectCount);
+ if(ta){
+   const age=lastTickAt?Math.max(0,Date.now()-lastTickAt):null;
+   ta.textContent=age===null?'—':`${(age/1000).toFixed(1)}s`;
+   ta.className=age===null?'':(age<5000?'good':age<15000?'warn':'bad');
+ }
+}
+
+function rejectPending(map,error){
+ const e=error instanceof Error?error:new Error(String(error||'WebSocket disconnected'));
+ for(const [id,p] of map.entries()){
+   clearTimeout(p.timer);
+   try{p.reject(e)}catch{}
+ }
+ map.clear();
+}
+
+function send(sock,map,payload,kind){
+ return new Promise((resolve,reject)=>{
+   if(!sock||sock.readyState!==1)return reject(new Error(`${kind} socket not connected`));
+   const id=kind==='market'?marketReq++:tradeReq++;
+   const timer=setTimeout(()=>{
+     map.delete(id);
+     reject(new Error(`${kind} request timeout`));
+   },15000);
+   map.set(id,{resolve,reject,timer});
+   try{
+     sock.send(JSON.stringify({...payload,req_id:id}));
+   }catch(err){
+     clearTimeout(timer); map.delete(id); reject(err);
+   }
+ });
+}
+
+function settle(map,m){
+ if(m.req_id&&map.has(m.req_id)){
+   const p=map.get(m.req_id);map.delete(m.req_id);clearTimeout(p.timer);
+   m.error?p.reject(new Error(`${m.error.code||'API'}: ${m.error.message}`)):p.resolve(m);
+   return true;
+ }
+ return false;
+}
+
+async function otp(){
+ const acct=($('accountType').value==='real'?$('realAccountId').value:$('demoAccountId').value).trim();
+ const app=$('appId').value.trim(),pat=$('pat').value.trim();
+ if(!app||!acct||!pat)throw new Error('Enter App ID, selected account ID and PAT.');
+ if($('accountType').value==='real'&&$('realArm').value!=='on')throw new Error('Real trading is not armed.');
+ const r=await fetch(`${API}/trading/v1/options/accounts/${encodeURIComponent(acct)}/otp`,{
+   method:'POST',
+   headers:{Authorization:`Bearer ${pat}`,'Deriv-App-ID':app}
+ });
+ const d=await r.json().catch(()=>({}));
+ if(!r.ok)throw new Error(d?.errors?.[0]?.message||`OTP HTTP ${r.status}`);
+ if(!d?.data?.url)throw new Error('No trading WebSocket URL returned.');
+ return d.data.url;
+}
+
+function openWS(url,{onmessage,onopen,onclose,onerror}={}){
+ return new Promise((resolve,reject)=>{
+   let opened=false;
+   const s=new WebSocket(url);
+   const timer=setTimeout(()=>{
+     if(!opened){
+       try{s.close()}catch{}
+       reject(new Error('WebSocket open timeout'));
+     }
+   },12000);
+
+   s.onopen=()=>{
+     opened=true; clearTimeout(timer);
+     try{onopen?.(s)}catch(err){log(`WebSocket onopen handler: ${err.message}`)}
+     resolve(s);
+   };
+   s.onmessage=(ev)=>{
+     try{onmessage?.(ev)}catch(err){log(`WebSocket message handler: ${err.message}`)}
+   };
+   s.onerror=(ev)=>{
+     try{onerror?.(ev)}catch{}
+     if(!opened){
+       clearTimeout(timer);
+       reject(new Error('WebSocket connection error — check App ID, PAT scope, account ID, and network access'));
+     }
+   };
+   s.onclose=(ev)=>{
+     clearTimeout(timer);
+     try{onclose?.(ev)}catch(err){log(`WebSocket close handler: ${err.message}`)}
+     if(!opened)reject(new Error(`WebSocket closed during connect (${ev?.code||'unknown'})`));
+   };
+ });
+}
+
+function processMarketMessage(m){
+ marketLastMessageAt=Date.now();
+ if(settle(mp,m))return;
+ if(m.msg_type==='tick'&&m.tick?.symbol===sym()){
+   const q=Number(m.tick.quote),e=Number(m.tick.epoch);
+   if(Number.isFinite(q)){
+     lastTickAt=Date.now();
+     prices.push(q);epochs.push(e);
+     if(prices.length>3000){prices.shift();epochs.shift()}
+     addLiveTraining();
+     void settleWarmupTrade().catch(err=>log(`WARM-UP SETTLE ERROR: ${err.message}`));
+     update();
+     if(warmupActive){
+       void maybeWarmupTrade();
+     }else if(marketReady&&tradeReady&&!tradeRecoveryLock){
+       maybeTrade();
+     }
+   }
+ }
+ if(m.error)log(`Market API: ${m.error.message||m.error.code||'Unknown error'}`);
+}
+
+function processTradeMessage(m){
+ tradeLastMessageAt=Date.now();
+ if(settle(tp,m))return;
+ if(m.msg_type==='proposal_open_contract'){
+   contractUpdate(m.proposal_open_contract||{});
+ }
+ if(m.error)log(`Trade API: ${m.error.message||m.error.code||'Unknown error'}`);
+}
+
+function rejectAndMarkDisconnected(kind){
+ if(kind==='market'){
+   marketReady=false;
+   rejectPending(mp,new Error('Market WebSocket disconnected'));
+ }else{
+   tradeReady=false;
+   rejectPending(tp,new Error('Trade WebSocket disconnected'));
+ }
+ updateConnectionUI();
+}
+
+
+function resetMarketModelState(){
+  prices=[];epochs=[];samples=[];trackers=[];lastSignalTick=-1;entryPending=false;
+  liveFeatureStats={mean:Array(9).fill(0),sd:Array(9).fill(1)};
+  calibration={'50-56':{n:0,w:0},'56-62':{n:0,w:0},'62-68':{n:0,w:0},'68-74':{n:0,w:0},'74-80':{n:0,w:0},'80+':{n:0,w:0}};
+}
+async function loadMarketSnapshot(){
+ if(!marketReady||!market)return;
+ const h=await send(market,mp,{ticks_history:sym(),count:1200,end:'latest',style:'ticks'},'market');
+ const hist=(h.history?.prices||[]).map(Number).filter(Number.isFinite);
+ const times=(h.history?.times||[]).map(Number);
+ if(hist.length){
+   prices=hist;
+   epochs=times;
+   trackers=[];
+   rebuildSamples();
+   lastTickAt=Date.now();
+ }
+ await send(market,mp,{ticks:sym(),subscribe:1},'market');
+}
+
+async function connectMarketSocket(initial=false){
+ if(manualDisconnect||marketConnecting||(marketReady&&market?.readyState===1))return;
+ marketConnecting=true;
+ try{
+   if(market)try{market.close()}catch{}
+   status(initial?'CONNECTING MARKET':'RECONNECTING MARKET');
+   const ws=await openWS(PUBLIC,{
+     onmessage:ev=>{
+       let m;try{m=JSON.parse(ev.data)}catch{return}
+       processMarketMessage(m);
+     },
+     onopen:()=>{},
+     onerror:()=>{},
+     onclose:()=>{
+       const wasReady=marketReady;
+       rejectAndMarkDisconnected('market');
+       if(!marketChanging&&(wasReady||sessionActive)){
+         log('Market WebSocket closed. Automatic reconnect scheduled.');
+         scheduleMarketReconnect();
+       }
+     }
+   });
+   market=ws;
+   marketReady=true;
+   marketReconnectAttempts=0;
+   marketLastMessageAt=Date.now();
+   updateConnectionUI();
+   await loadMarketSnapshot();
+   log(`Market WebSocket ${initial?'connected':'reconnected'} — ${sym()} tick stream restored.`);
+   if(!initial&&sessionActive)status(tradeReady?'RUNNING':'RECONNECTING TRADE');
+ }catch(err){
+   marketReady=false; updateConnectionUI();
+   if(initial)throw err;
+   log(`Market reconnect failed: ${err.message}`);
+   scheduleMarketReconnect();
+ }finally{
+   marketConnecting=false;
+ }
+}
+
+async function connectTradeSocket(initial=false){
+ if(manualDisconnect||tradeConnecting||(tradeReady&&trade?.readyState===1))return;
+ tradeConnecting=true;
+ try{
+   if(trade)try{trade.close()}catch{}
+   status(initial?'AUTHENTICATING TRADE':'REAUTHENTICATING TRADE');
+   // Obtain a FRESH OTP for every authenticated reconnect. OTPs are single-use.
+   const url=await otp();
+   const ws=await openWS(url,{
+     onmessage:ev=>{
+       let m;try{m=JSON.parse(ev.data)}catch{return}
+       processTradeMessage(m);
+     },
+     onopen:()=>{},
+     onerror:()=>{},
+     onclose:()=>{
+       const wasReady=tradeReady;
+       rejectAndMarkDisconnected('trade');
+       if(wasReady||sessionActive||active||uncertainBuy){
+         log('Trade WebSocket closed. Automatic re-authentication scheduled.');
+         scheduleTradeReconnect();
+       }
+     }
+   });
+   trade=ws;
+   tradeReady=true;
+   tradeReconnectAttempts=0;
+   tradeLastMessageAt=Date.now();
+   reconnectCount++;
+   updateConnectionUI();
+
+   await reconcileTradeState();
+   log(`Authenticated trade WebSocket ${initial?'connected':'reconnected'}.`);
+   if(sessionActive&&marketReady&&!tradeRecoveryLock)status('RUNNING');
+ }catch(err){
+   tradeReady=false; updateConnectionUI();
+   if(initial)throw err;
+   log(`Trade reconnect failed: ${err.message}`);
+   scheduleTradeReconnect();
+ }finally{
+   tradeConnecting=false;
+ }
+}
+
+function scheduleMarketReconnect(){
+ if(manualDisconnect||marketReconnectTimer||marketConnecting)return;
+ const delay=Math.min(30000,1000*Math.pow(2,marketReconnectAttempts++));
+ marketReconnectTimer=setTimeout(async()=>{
+   marketReconnectTimer=null;
+   reconnectCount++;
+   updateConnectionUI();
+   await connectMarketSocket(false);
+ },delay);
+}
+
+function scheduleTradeReconnect(){
+ if(manualDisconnect||tradeReconnectTimer||tradeConnecting)return;
+ const delay=Math.min(30000,1000*Math.pow(2,tradeReconnectAttempts++));
+ tradeReconnectTimer=setTimeout(async()=>{
+   tradeReconnectTimer=null;
+   await connectTradeSocket(false);
+ },delay);
+}
+
+async function reconcileTradeState(){
+ if(!tradeReady)return;
+
+ // If we already know the active contract, restore its stream immediately.
+ if(active?.id){
+   try{
+     trade.send(JSON.stringify({
+       proposal_open_contract:1,
+       contract_id:active.id,
+       subscribe:1,
+       req_id:tradeReq++
+     }));
+     tradeRecoveryLock=false;
+   }catch(err){
+     tradeRecoveryLock=true;
+     log(`Could not resubscribe active contract: ${err.message}`);
+   }
+   return;
+ }
+
+ // If a buy was interrupted by a socket drop/timeout, NEVER blindly buy again.
+ // First ask the account for its currently open positions. The portfolio endpoint
+ // returns open positions only; this is used as a duplicate-trade safety check.
+ if(uncertainBuy){
+   tradeRecoveryLock=true;
+   try{
+     const p=await send(trade,tp,{portfolio:1},'trade');
+     const contracts=p.portfolio?.contracts||[];
+     if(contracts.length===0){
+       uncertainBuy=false;
+       tradeRecoveryLock=false;
+       entryPending=false;
+       active=null;
+       log('Position reconciliation: no open position found; uncertain entry cleared safely.');
+     }else{
+       log(`Position reconciliation: ${contracts.length} open position(s) found. BOT PAUSED to avoid duplicate trading.`);
+       status('POSITION RECONCILIATION');
+       running=false;
+     }
+   }catch(err){
+     log(`Position reconciliation failed: ${err.message}`);
+   }
+ }
+}
+
+
+
+function warmupEligibleMarkets(){
+  const origin=warmupOriginMarket||sym();
+  return switchMarketList().filter(x=>x!==origin);
+}
+function updateWarmupUI(){
+  const el=$('warmupProgress');if(!el)return;
+  if($('preStartWarmup')?.value!=='on'){el.textContent='OFF';el.className='';return;}
+  const total=Math.max(1,Math.floor(n('warmupTrades')||1));
+  el.textContent=warmupActive?`${warmupCompleted}/${total}`:`${Math.min(warmupCompleted,total)}/${total}`;
+  el.className=warmupCompleted>=total&&!warmupActive?'good':warmupActive?'warn':'';
+}
+function resetSessionTradingStats(){
+  trades=0;wins=0;losses=0;pnl=0;mgStep=0;mgLossPool=0;consecutiveLosses=0;
+  records=[];if($('rows'))$('rows').innerHTML='';
+}
+async function changeMarketForWarmup(targetSymbol){
+  if(marketChanging||targetSymbol===sym())return false;
+  marketChanging=true;const previous=sym();
+  running=false;sessionActive=false;entryPending=false;status('WARM-UP MARKET');
+  log(`PRE-START WARM-UP: ${previous} → ${targetSymbol}.`);
+  try{
+    $('symbol').value=targetSymbol;marketReady=false;lastTickAt=0;
+    if(market)try{market.close()}catch{}
+    await connectMarketSocket(false);
+    if(!marketReady)throw new Error('Warm-up market connection failed.');
+    lastSignalTick=-1;warmupActiveTrade=null;
+    updateMarketPerformanceUI();updateWarmupUI();
+    log(`WARM-UP MARKET READY: ${targetSymbol} | ${prices.length} ticks | ${samples.length} samples.`);
+    return true;
+  }catch(e){log(`PRE-START WARM-UP MARKET ERROR: ${e.message}`);return false}
+  finally{marketChanging=false;}
+}
+function chooseNextWarmupMarket(){
+  if(!warmupMarkets.length)return null;
+  const x=warmupMarkets[warmupCursor%warmupMarkets.length];warmupCursor++;return x;
+}
+async function finishPreStartWarmup(){
+  const origin=warmupOriginMarket;
+  warmupActive=false;warmupActiveTrade=null;
+  log(`PRE-START WARM-UP COMPLETE: ${warmupCompleted}/${warmupTarget} completed paper trades across the other markets.`);
+  if(origin&&sym()!==origin){
+    if(!(await changeMarketForWarmup(origin))){
+      status('WARM-UP COMPLETE — RETURN FAILED');
+      log(`Warm-up target reached, but returning to ${origin} failed. Bot remains stopped.`);
+      updateWarmupUI();return;
+    }
+  }
+  resetSessionTradingStats();lossPauseActive=false;tradeRecoveryLock=false;uncertainBuy=false;entryPending=false;
+  sessionActive=true;running=true;sessionStartedAt=Date.now();status('RUNNING');startConnectionWatchdog();
+  updateMarketPerformanceUI();updateWarmupUI();
+  log(`NORMAL STRATEGY STARTED on ${sym()} after ${warmupCompleted} cross-market warm-up trades.`);
+}
+async function startPreStartWarmup(){
+  warmupTarget=Math.max(1,Math.floor(n('warmupTrades')||1));warmupCompleted=0;
+  warmupOriginMarket=sym();warmupMarkets=warmupEligibleMarkets();warmupCursor=0;warmupActiveTrade=null;
+  if(!warmupMarkets.length){
+    log('PRE-START WARM-UP: no other configured markets. Starting normal strategy immediately.');
+    warmupActive=false;sessionActive=true;running=true;status('RUNNING');sessionStartedAt=Date.now();startConnectionWatchdog();updateWarmupUI();return;
+  }
+  warmupActive=true;sessionActive=false;running=false;lossPauseActive=false;tradeRecoveryLock=false;uncertainBuy=false;entryPending=false;
+  status(`WARM-UP 0/${warmupTarget}`);
+  log(`PRE-START WARM-UP STARTED: need ${warmupTarget} completed paper trades across ${warmupMarkets.length} other markets. Origin=${warmupOriginMarket}.`);
+  const first=chooseNextWarmupMarket();
+  if(!(await changeMarketForWarmup(first))){warmupActive=false;status('WARM-UP ERROR');return;}
+  updateWarmupUI();
+}
+async function maybeWarmupTrade(){
+  if(!warmupActive||marketChanging||!marketReady||!tradeReady||entryPending||active||warmupActiveTrade)return;
+  if(warmupCompleted>=warmupTarget){await finishPreStartWarmup();return;}
+  if(prices.length<30||lastSignalTick===prices.length-1)return;
+  lastSignalTick=prices.length-1;entryPending=true;
+  try{
+    if(samples.length<200){entryPending=false;return;}
+    const profile=entryThresholds(),p=predict(),prob=Math.max(p.pUp,p.pDown);
+    if(prob<profile.minProb||prob>profile.maxProb||Math.abs(p.pUp-p.pDown)<profile.minGap){entryPending=false;return;}
+    const neededNeighbors=Math.min(10,Math.max(3,Math.floor(n('k'))));
+    if(p.neighbors<neededNeighbors||p.neighborAgreement<profile.agreement||p.medianDistance>profile.maxDist){entryPending=false;return;}
+    const dir=p.dir,type=dir==='RISE'?'CALL':'PUT',baseStake=normalizeStake(Math.max(.35,n('stake')));
+    const probe=await send(trade,tp,{proposal:1,amount:baseStake,basis:'stake',contract_type:type,currency:'USD',duration:Math.max(1,Math.floor(n('duration'))),duration_unit:'t',underlying_symbol:sym()},'trade');
+    const ask=Number(probe.proposal?.ask_price),pay=Number(probe.proposal?.payout),pid=probe.proposal?.id;
+    if(!pid||!Number.isFinite(ask)||!Number.isFinite(pay))throw new Error('Invalid warm-up proposal');
+    const payoutPct=(pay-ask)/ask*100;if(payoutPct<n('minPayout')){entryPending=false;return;}
+    warmupActiveTrade={market:sym(),dir,type,prob,entry:prices.at(-1),entryIndex:prices.length-1,expiry:prices.length-1+Math.max(1,Math.floor(n('duration'))),stake:ask,payout:pay,payoutPct,startedAt:Date.now()};
+    entryPending=false;status(`WARM-UP ${warmupCompleted}/${warmupTarget}`);
+    log(`WARM-UP PAPER START: ${sym()} ${dir} | P=${(prob*100).toFixed(1)}% | payout=${payoutPct.toFixed(1)}%`);
+  }catch(e){entryPending=false;signalBlocked.error++;log(`WARM-UP SIGNAL ERROR: ${e.message}`);}
+}
+async function settleWarmupTrade(){
+  const t=warmupActiveTrade;if(!t||!warmupActive||prices.length-1<t.expiry)return false;
+  const exit=prices.at(-1),won=t.type==='CALL'?exit>t.entry:exit<t.entry,result=won?'WIN':'LOSS';
+  recordMarketOutcome(t.market,result);warmupCompleted++;
+  log(`WARM-UP ${result}: ${t.market} ${t.dir} | entry=${t.entry} exit=${exit} | ${warmupCompleted}/${warmupTarget}`);
+  warmupActiveTrade=null;updateMarketPerformanceUI();updateWarmupUI();
+  if(warmupCompleted>=warmupTarget){await finishPreStartWarmup();return true;}
+  const next=chooseNextWarmupMarket();if(next)await changeMarketForWarmup(next);
+  updateWarmupUI();return true;
+}
+
+async function switchMarketTo(targetSymbol,reason='AUTO SWITCH'){
+  if(autoSwitchBusy||targetSymbol===sym()||active)return false;
+  autoSwitchBusy=true;
+  const previous=sym();
+  running=false;sessionActive=false;entryPending=false;
+  status('SWITCHING MARKET');
+  log(`${reason}: ${previous} → ${targetSymbol}.`);
+  try{
+    $('symbol').value=targetSymbol;
+    marketReady=false;lastTickAt=0;
+    if(market)try{market.close()}catch{}
+    await connectMarketSocket(false);
+    if(!marketReady)throw new Error('New market connection failed.');
+    consecutiveLosses=0;lossPauseActive=false;lastAutoSwitchAt=Date.now();
+    sessionActive=true;running=true;lossPauseActive=false;consecutiveLosses=0;status('RUNNING');
+    updateMarketPerformanceUI();
+    log(`AUTO SWITCH COMPLETE: ${targetSymbol}; rebuilt model from ${prices.length} ticks / ${samples.length} samples.`);
+    return true;
+  }catch(e){
+    lossPauseActive=true;running=false;sessionActive=false;status('PAUSED — SWITCH FAILED');
+    log(`AUTO SWITCH FAILED: ${e.message}`);
+    return false;
+  }finally{autoSwitchBusy=false;}
+}
+
+async function handleLossPauseAfterSettlement(){
+  if($('lossPauseEnabled').value!=='on'||consecutiveLosses<2)return false;
+  lossPauseActive=true;running=false;sessionActive=false;entryPending=false;
+  status('PAUSED — 2 LOSSES');
+  log('LOSS PAUSE: 2 consecutive losses. No new trades will be entered.');
+
+  if($('autoSwitch').value!=='on'){
+    log('AUTO SWITCH OFF — remain paused until START.');
+    return true;
+  }
+
+  const ranked=rankedEligibleMarkets(),current=sym(),cur=marketStats(current),best=ranked[0];
+  if(!best){
+    log(`AUTO SWITCH: no eligible market with at least ${Math.max(15,Math.floor(n('switchMinTrades')||15))} completed strategy trades.`);
+    return true;
+  }
+  if(best.symbol===current){
+    log(`AUTO SWITCH: ${current} remains best at ${(best.winRate*100).toFixed(1)}%. Bot remains paused.`);
+    return true;
+  }
+  if(cur.trades>=Math.max(15,Math.floor(n('switchMinTrades')||15))&&best.winRate<=cur.winRate){
+    log(`AUTO SWITCH: no better eligible market (${best.symbol} ${(best.winRate*100).toFixed(1)}% vs ${current} ${(cur.winRate*100).toFixed(1)}%).`);
+    return true;
+  }
+  if(Date.now()-lastAutoSwitchAt<30000){log('AUTO SWITCH cooldown active.');return true;}
+  await switchMarketTo(best.symbol,'2-LOSS AUTO SWITCH');
+  return true;
+}
+
+function startConnectionWatchdog(){
+ if(watchdogTimer)return;
+ watchdogTimer=setInterval(async()=>{
+   updateConnectionUI();
+   if(manualDisconnect||!sessionActive)return;
+
+   const now=Date.now();
+   if(!marketReady||!market||market.readyState!==1||(!lastTickAt||now-lastTickAt>15000)){
+     if(marketReady)log(`Market stream stale (${((now-lastTickAt)/1000).toFixed(1)}s since last tick). Reconnecting.`);
+     scheduleMarketReconnect();
+   }
+
+   if(!tradeReady||!trade||trade.readyState!==1||(!tradeLastMessageAt||now-tradeLastMessageAt>90000)){
+     if(tradeReady)log('Trade WebSocket heartbeat stale. Re-authenticating.');
+     scheduleTradeReconnect();
+   }
+
+   // Heartbeat every ~30 seconds with an actual req_id so stale connections
+   // become detectable rather than merely sending fire-and-forget pings.
+   if(tradeReady&&trade?.readyState===1){
+     try{await send(trade,tp,{ping:1},'trade');tradeLastMessageAt=Date.now()}catch{}
+   }
+   if(marketReady&&market?.readyState===1){
+     try{await send(market,mp,{ping:1},'market');marketLastMessageAt=Date.now()}catch{}
+   }
+ },30000);
+}
+
+function stopConnectionWatchdog(){
+ if(watchdogTimer){clearInterval(watchdogTimer);watchdogTimer=null}
+}
+
+async function disconnectAll(){
+ manualDisconnect=true;
+ sessionActive=false;
+ if(marketReconnectTimer){clearTimeout(marketReconnectTimer);marketReconnectTimer=null}
+ if(tradeReconnectTimer){clearTimeout(tradeReconnectTimer);tradeReconnectTimer=null}
+ stopConnectionWatchdog();
+ marketReady=false;tradeReady=false;
+ rejectPending(mp,new Error('Market connection closed by user'));
+ rejectPending(tp,new Error('Trade connection closed by user'));
+ try{market?.close()}catch{}
+ try{trade?.close()}catch{}
+ market=null;trade=null;
+ updateConnectionUI();
+}
+function mean(a){return a.length?a.reduce((x,y)=>x+y,0)/a.length:0}
+function sd(a){
+ if(a.length<2)return 0;
+ const m=mean(a); return Math.sqrt(a.reduce((z,x)=>z+(x-m)*(x-m),0)/a.length);
+}
+function safeNum(x,d=0){const v=Number(x);return Number.isFinite(v)?v:d}
+
+function featureAt(end){
+ const i=Number(end), p=prices;
+ if(!Number.isInteger(i)||i<20||!Array.isArray(p)||p.length<=i)return null;
+
+ // Use a common local volatility denominator so features are scale-aware
+ // across synthetic indices and across changing volatility regimes.
+ const rets=[];
+ for(let j=Math.max(1,i-19);j<=i;j++) rets.push(p[j]-p[j-1]);
+ const vol20=sd(rets);
+ if(!(vol20>0))return null;
+
+ const sma5=mean(p.slice(i-4,i+1));
+ const sma5Prev=mean(p.slice(i-5,i));
+ const slope=(sma5-sma5Prev)/vol20;
+ const distance=(p[i]-sma5)/vol20;
+ const m1=(p[i]-p[i-1])/vol20;
+ const m3=(p[i]-p[i-3])/vol20;
+ const m5=(p[i]-p[i-5])/vol20;
+ const accel=((p[i]-p[i-2])-(p[i-2]-p[i-4]))/vol20;
+
+ const vol5=sd(rets.slice(-5));
+ const vol10=sd(rets.slice(-10));
+ const volRatio5=vol5/vol20;
+ const volRatio10=vol10/vol20;
+
+ const last8=rets.slice(-8);
+ const persistence=last8.filter(x=>x>0).length/Math.max(1,last8.length);
+ const shock=Math.abs(rets.at(-1))/vol20;
+
+ return [
+   distance,
+   slope,
+   m1,
+   m3,
+   m5,
+   accel,
+   volRatio5,
+   persistence-0.5,
+   shock
+ ];
+}
+
+function featureStats(pool){
+ const dim=9, meanV=Array(dim).fill(0), sdV=Array(dim).fill(1);
+ if(!pool?.length)return {mean:meanV,sd:sdV};
+ for(const e of pool){
+   for(let j=0;j<dim;j++)meanV[j]+=safeNum(e.x?.[j]);
+ }
+ for(let j=0;j<dim;j++)meanV[j]/=pool.length;
+ const sums=Array(dim).fill(0);
+ for(const e of pool){
+   for(let j=0;j<dim;j++){const d=safeNum(e.x?.[j])-meanV[j];sums[j]+=d*d}
+ }
+ for(let j=0;j<dim;j++)sdV[j]=Math.sqrt(sums[j]/Math.max(1,pool.length))||1;
+ return {mean:meanV,sd:sdV};
+}
+let liveFeatureStats={mean:Array(9).fill(0),sd:Array(9).fill(1)};
+
+function scaledFeature(x,stats){
+ if(!x||!stats)return null;
+ return x.map((v,j)=>(safeNum(v)-stats.mean[j])/stats.sd[j]);
+}
+function featureDistanceScaled(a,b,stats){
+ const aa=scaledFeature(a,stats),bb=scaledFeature(b,stats);
+ if(!aa||!bb)return Infinity;
+ let z=0;
+ for(let i=0;i<aa.length;i++){
+   // Volatility ratio/persistence/shock are intentionally down-weighted;
+   // price-direction structure gets the larger share of distance.
+   const w=(i===6||i===7||i===8)?0.65:1;
+   const d=(aa[i]-bb[i])*w;
+   z+=d*d;
+ }
+ return Math.sqrt(z/aa.length);
+}
+
+function rawKnnPrediction(x,pool=samples,opts={}){
+ if(!x||!pool?.length)return {pUp:.5,pDown:.5,dir:'',neighbors:0,raw:.5,expectedMove:0,neighborAgreement:.5,medianDistance:Infinity};
+ const stats=opts.stats||featureStats(pool);
+ const indexed=[];
+ for(const e of pool){
+   const d=featureDistanceScaled(x,e.x,stats);
+   if(Number.isFinite(d))indexed.push({e,d});
+ }
+ if(!indexed.length)return {pUp:.5,pDown:.5,dir:'',neighbors:0,raw:.5,expectedMove:0,neighborAgreement:.5,medianDistance:Infinity};
+
+ indexed.sort((a,b)=>a.d-b.d);
+ const k=Math.min(indexed.length,Math.max(3,Math.floor(n('k'))));
+ const near=indexed.slice(0,k);
+ const halfLife=Math.max(50,Number(opts.halfLife||400));
+ const currentIndex=Number(opts.currentIndex??(pool.at(-1)?.index??0));
+ let wu=0,w=0,move=0,upW=0;
+ for(const z of near){
+   const age=Math.max(0,currentIndex-safeNum(z.e.index,currentIndex));
+   const recency=Math.exp(-age/halfLife);
+   const distanceWeight=1/(z.d+0.12);
+   const wt=recency*distanceWeight;
+   w+=wt; wu+=wt*z.e.y; move+=wt*safeNum(z.e.futureMove);
+   if(z.e.y===1)upW+=wt;
+ }
+ const pUp=w?wu/w:.5;
+ const agreement=w?Math.max(upW/w,1-upW/w):.5;
+ const medianDistance=near[Math.floor(near.length/2)]?.d??Infinity;
+
+ // Confidence is reduced when neighbors are both far away and internally split.
+ const distanceConfidence=Number.isFinite(medianDistance)?1/(1+medianDistance):0;
+ const neighborConfidence=Math.max(0,Math.min(1,(agreement-.5)*2));
+ const structuralConfidence=Math.min(1,0.35*distanceConfidence+0.65*neighborConfidence);
+ const shrunk=.5+(pUp-.5)*(0.55+0.45*structuralConfidence);
+
+ return {
+   pUp:shrunk,pDown:1-shrunk,dir:shrunk>=.5?'RISE':'FALL',
+   neighbors:near.length,raw:pUp,expectedMove:move,
+   neighborAgreement:agreement,medianDistance
+ };
+}
+
+function calibrationBucket(p){
+ const x=Math.max(.5,Math.min(1,Number(p)));
+ return x<.56?'50-56':x<.62?'56-62':x<.68?'62-68':x<.74?'68-74':x<.80?'74-80':'80+';
+}
+function calibrateProbability(raw){
+ const x=Math.max(.5,Math.min(1,Number(raw)||.5));
+ const b=calibrationBucket(x),st=calibration[b]||{n:0,w:0};
+ const prior=Math.max(10,n('calPrior'));
+ const posterior=(st.w+0.5*prior)/(st.n+prior);
+ const conf=st.n/(st.n+prior);
+
+ // Blend, rather than replace, the raw model confidence.
+ // This prevents a sparse/weak calibration bucket from flattening every
+ // signal back to 50/50 and stopping the bot entirely.
+ const reliability=Math.max(.25,Math.min(1,conf));
+ const evidence=0.65*x+0.35*posterior;
+ const calibrated=.5+(evidence-.5)*(0.55+0.45*reliability);
+ return Math.max(.5,Math.min(1,calibrated));
+}
+let calibration={
+ '50-56':{n:0,w:0},'56-62':{n:0,w:0},'62-68':{n:0,w:0},
+ '68-74':{n:0,w:0},'74-80':{n:0,w:0},'80+':{n:0,w:0}
+};
+
+
+function buildWalkForwardCalibration(){
+ calibration={
+  '50-56':{n:0,w:0},'56-62':{n:0,w:0},'62-68':{n:0,w:0},
+  '68-74':{n:0,w:0},'74-80':{n:0,w:0},'80+':{n:0,w:0}
+ };
+ if(samples.length<200)return;
+
+ const H=Math.max(1,Math.floor(n('duration')));
+ const total=samples.length;
+ const startIdx=Math.max(80,total-700);
+ const targetStep=Math.max(1,Math.floor((total-startIdx)/150));
+ const candidates=[];
+ let poolEnd=-1;
+
+ for(let i=startIdx;i<total;i+=targetStep){
+   const target=samples[i], targetIndex=safeNum(target.index,0);
+
+   // Chronological pointer. Only training labels fully resolved before the
+   // target observation are eligible. This is the critical anti-leakage rule.
+   while(poolEnd+1<i &&
+         safeNum(samples[poolEnd+1].index,0)+H<targetIndex){
+     poolEnd++;
+   }
+   if(poolEnd<50)continue;
+
+   const pool=samples.slice(0,poolEnd+1);
+   const stats=featureStats(pool);
+   const r=rawKnnPrediction(target.x,pool,{
+     stats,halfLife:400,currentIndex:targetIndex
+   });
+   if(!r||!Number.isFinite(r.raw))continue;
+
+   const predictedUp=r.pUp>=.5;
+   const correct=predictedUp?(target.y===1):(target.y===0);
+   const rawCandidate=predictedUp?r.pUp:1-r.pUp;
+   candidates.push({p:rawCandidate,correct});
+ }
+
+ const latest=candidates.slice(-300);
+ for(const q of latest){
+   const b=calibrationBucket(q.p),st=calibration[b];
+   st.n++;if(q.correct)st.w++;
+ }
+}
+
+function rebuildSamples(){
+ samples=[];
+ const H=Math.max(1,Math.floor(n('duration')));
+ const max=Math.max(100,Math.floor(n('maxSamples')));
+ for(let end=20;end+H<prices.length;end++){
+   const x=featureAt(end); if(!x)continue;
+   const delta=prices[end+H]-prices[end];
+   // A tie is not a directional win. Exclude it from the directional training
+   // label rather than falsely assigning it to RISE or FALL.
+   if(delta===0)continue;
+   samples.push({x,y:delta>0?1:0,index:end,futureMove:delta/((sd(prices.slice(Math.max(0,end-19),end+1).map((v,j,a)=>j?v-a[j-1]:0)))||1)});
+ }
+ if(samples.length>max)samples=samples.slice(-max);
+ liveFeatureStats=featureStats(samples);
+ buildWalkForwardCalibration();
+ update();
+}
+
+function predict(){
+ const x=featureAt(prices.length-1);
+ const r=rawKnnPrediction(x,samples,{stats:liveFeatureStats,halfLife:400,currentIndex:prices.length-1});
+ if(!x||!samples.length)return {...r,pUp:.5,pDown:.5,dir:'',gap:0,calibrated:false,features:x};
+ const rawCandidate=r.pUp>=.5?r.pUp:1-r.pUp;
+ const calCandidate=calibrateProbability(rawCandidate);
+ const finalCandidate=.65*rawCandidate+.35*calCandidate;
+ const pUp=r.pUp>=.5?finalCandidate:1-finalCandidate;
+ const pDown=1-pUp,dir=pUp>=pDown?'RISE':'FALL';
+ return {...r,pUp,pDown,dir,gap:Math.abs(pUp-pDown),calibrated:true,
+         rawPUp:r.pUp,calibratedCandidate:calCandidate,finalCandidate,features:x};
+}
+
+function entryThresholds(){
+ const profile=$('entryProfile')?.value||'balanced';
+ let minProb=Math.max(.50,Math.min(.99,n('minProb')));
+ let maxProb=Math.max(.50,Math.min(.99,n('maxProb')));
+ if(maxProb<minProb) maxProb=minProb;
+
+ // The selected range controls the final calibrated directional probability.
+ if(profile==='strict') return {minProb:Math.max(.65,minProb),maxProb,minGap:Math.max(.06,n('minGap')),agreement:.65,maxDist:3.0};
+ if(profile==='explore') return {minProb:Math.max(.52,minProb),maxProb:Math.max(maxProb,.80),minGap:.02,agreement:.52,maxDist:5.0};
+ return {minProb,maxProb,minGap:Math.max(.03,n('minGap')),agreement:.55,maxDist:4.5};
+}
+function recordBlock(reason){
+ signalBlocked[reason]=(signalBlocked[reason]||0)+1;
+ const parts=`warmup:${signalBlocked.warmup} lowP:${signalBlocked.prob} highP:${signalBlocked.highprob} gap:${signalBlocked.gap} neighbors:${signalBlocked.neighbors} agreement:${signalBlocked.agreement} distance:${signalBlocked.distance} payout:${signalBlocked.payout} errors:${signalBlocked.error}`;
+ const d=$('modelDiag'); if(d)d.textContent=`Signal checks ${signalChecks} | qualified ${signalQualified} | blocked ${reason} | ${parts}`;
+}
+
+function addLiveTraining(){
+ const H=Math.max(1,Math.floor(n('duration')));
+ while(trackers.length&&trackers[0].due<=prices.length-1){
+   const t=trackers.shift(),delta=prices[prices.length-1]-t.entry;
+   if(delta!==0&&t.x){
+     samples.push({x:t.x,y:delta>0?1:0,index:t.index,futureMove:delta});
+     const max=Math.max(100,Math.floor(n('maxSamples')));
+     if(samples.length>max)samples.shift();
+   }
+ }
+ liveFeatureStats=featureStats(samples);
+ const x=featureAt(prices.length-1);
+ if(x)trackers.push({due:prices.length-1+H,entry:prices.at(-1),x,index:prices.length-1});
+ if(prices.length%200===0&&samples.length>=200)buildWalkForwardCalibration();
+}
+function update(){
+ const p=predict(); updateMarketPerformanceUI(); updateWarmupUI(); $('price').textContent=prices.length?prices.at(-1).toFixed(4):'—';
+ $('pUp').textContent=(p.pUp*100).toFixed(1)+'%';$('pDown').textContent=(p.pDown*100).toFixed(1)+'%';$('direction').textContent=p.dir||'—';
+ $('samples').textContent=samples.length;$('trades').textContent=trades;$('wins').textContent=wins;$('losses').textContent=losses;
+ $('wr').textContent=trades?(wins/trades*100).toFixed(1)+'%':'—';$('pnl').textContent=(pnl>=0?'+':'')+'$'+pnl.toFixed(2);
+ $('mgStep').textContent=mgStep;$('mgPool').textContent='$'+mgLossPool.toFixed(2);
+ const targetEl=$('targetStatus');
+ if(targetEl){
+   const target=Math.max(0,n('profitTarget'));
+   targetEl.textContent=target>0?`$${target.toFixed(2)}`:'OFF';
+   targetEl.className=target>0?(pnl>=target?'good':''):'';
+ }
+ const recoveryEl=$('recoveryTargetStatus');
+ if(recoveryEl){
+   const rt=Math.max(0,n('mgTarget'));
+   recoveryEl.textContent=rt>0?`$${rt.toFixed(2)}`:'$0.00';
+ }
+ $('pnl').className=pnl>=0?'good':'bad';
+ const md=$('modelDiag');
+ if(md){
+   const q=predict();
+   const parts=`checks ${signalChecks} | qualified ${signalQualified} | range ${(entryThresholds().minProb*100).toFixed(0)}–${(entryThresholds().maxProb*100).toFixed(0)}% | blocked W${signalBlocked.warmup}/LP${signalBlocked.prob}/HP${signalBlocked.highprob}/G${signalBlocked.gap}/N${signalBlocked.neighbors}/A${signalBlocked.agreement}/D${signalBlocked.distance}/$${signalBlocked.payout}`;
+   md.textContent=`Profile ${$('entryProfile')?.value||'balanced'} | ${q.dir||'WAIT'} | final ${(q.pUp*100).toFixed(1)}% RISE / ${(q.pDown*100).toFixed(1)}% FALL | raw ${((q.pUp>=.5?q.rawPUp:1-q.rawPUp)*100).toFixed(1)}% | neighbors ${q.neighbors||0} | agreement ${(q.neighborAgreement*100).toFixed(1)}% | dist ${Number.isFinite(q.medianDistance)?q.medianDistance.toFixed(2):'—'} | ${parts}`;
+ }
+}
+
+async function connect(){
+ manualDisconnect=false;
+ sessionActive=false;
+ running=false;
+ status('AUTHENTICATING');
+ if(market)try{market.close()}catch{}
+ if(trade)try{trade.close()}catch{}
+ if(marketReconnectTimer){clearTimeout(marketReconnectTimer);marketReconnectTimer=null}
+ if(tradeReconnectTimer){clearTimeout(tradeReconnectTimer);tradeReconnectTimer=null}
+ mp=new Map();tp=new Map();entryPending=false;trackers=[];tradeRecoveryLock=false;uncertainBuy=false;
+ calibration={'50-56':{n:0,w:0},'56-62':{n:0,w:0},'62-68':{n:0,w:0},'68-74':{n:0,w:0},'74-80':{n:0,w:0},'80+':{n:0,w:0}};
+ lastTickAt=0;marketLastMessageAt=0;tradeLastMessageAt=0;consecutiveLosses=0;lossPauseActive=false;loadMarketPerformance();
+
+ // Public market socket: independent from trading authentication.
+ await connectMarketSocket(true);
+
+ // Authenticated trading socket: fresh OTP immediately before connect.
+ await connectTradeSocket(true);
+
+ sessionActive=true;
+ sessionStartedAt=Date.now();
+ startConnectionWatchdog();
+ status('CONNECTED');
+ log(`Stable connection established: PUBLIC MARKET + AUTHENTICATED TRADE. Loaded ${prices.length} ticks and built ${samples.length} KNN samples for ${sym()}.`);
+ updateConnectionUI();
+}
+
+function normalizeStake(value){
+ const maxStake=Math.max(.35,n('mgMaxStake'));
+ // Deriv rejects stakes with more than 2 decimal places.
+ // Round once, clamp to the configured maximum, and never go below $0.35.
+ return Math.min(maxStake, Math.max(.35, Math.round((Number(value)+1e-10)*100)/100));
+}
+function martingaleLadder(){
+ const base=normalizeStake(Math.max(.35,n('stake')));
+ const factor=Math.max(1,n('mgFactor'));
+ const maxStake=Math.max(base,n('mgMaxStake'));
+ const maxStep=Math.max(0,Math.floor(n('mgMax')));
+ const arr=[base];
+ for(let step=1;step<=maxStep;step++){
+   arr.push(normalizeStake(Math.min(maxStake,base*Math.pow(factor,step))));
+ }
+ return arr;
+}
+function nextStake(payoutPct){
+ const base=normalizeStake(Math.max(.35,n('stake')));
+ const mode=$('mgMode').value;
+ if(mode==='off'||mgStep===0)return base;
+
+ const ladder=martingaleLadder();
+ if(mode==='factor'){
+   // Deterministic: step N always maps to ladder[N], subject only to
+   // the explicitly configured maximum stake cap.
+   return ladder[Math.min(mgStep,ladder.length-1)] ?? ladder.at(-1);
+ }
+
+ // Optional payout-aware mode remains available, but its calculation is
+ // explicitly displayed in the log as "PAYOUT-AWARE" so it cannot be mistaken
+ // for the fixed ladder.
+ const payout=Math.max(0.001,Number(payoutPct||0)/100);
+ const recoveryTarget=Math.max(0,n('mgTarget'));
+ const maxStake=Math.max(base,n('mgMaxStake'));
+ // IMPORTANT: recoveryTarget is separate from session profitTarget.
+ // Payout-aware recovery seeks to recover the accumulated loss pool plus
+ // this recovery-only target profit. Session profitTarget is checked separately
+ // after settlement and stops all new trading.
+ return normalizeStake(Math.min(maxStake,Math.max(base,(mgLossPool+recoveryTarget)/payout)));
+}
+function updateLadderPreview(){
+ const el=$('ladderPreview'); if(!el)return;
+ const mode=$('mgMode').value;
+ if(mode==='off'){el.textContent='OFF';return}
+ if(mode==='factor'){
+   el.textContent=martingaleLadder().map((v,i)=>`S${i} $${v.toFixed(2)}`).join('  →  ');
+   return;
+ }
+ el.textContent='Payout-aware (calculated from live payout)';
+}
+
+function targetReached(){
+ const target=Math.max(0,n('profitTarget'));
+ return target>0 && pnl>=target;
+}
+function nextPlannedStakeText(payoutPct){
+ const st=nextStake(payoutPct);
+ const mode=$('mgMode').value;
+ return mode==='factor'
+   ? `MG ${mgStep}: $${st.toFixed(2)} (fixed ladder)`
+   : mode==='payout'
+     ? `MG ${mgStep}: $${st.toFixed(2)} (payout-aware)`
+     : `MG OFF: $${st.toFixed(2)}`;
+}
+function checkSessionLimits(){
+ if(targetReached()){
+   running=false;
+   entryPending=false;
+   sessionActive=false;
+   stopConnectionWatchdog();
+   status('TARGET HIT');
+   log(`SESSION PROFIT TARGET REACHED: +$${pnl.toFixed(2)} >= +$${n('profitTarget').toFixed(2)}. BOT STOPPED — no new trades will be entered.`);
+   return true;
+ }
+ if(n('lossStop')>0&&pnl<=-Math.abs(n('lossStop'))){
+   running=false;
+   entryPending=false;
+   sessionActive=false;
+   stopConnectionWatchdog();
+   status('LOSS STOP');
+   log(`SESSION LOSS STOP REACHED: $${pnl.toFixed(2)} <= -$${Math.abs(n('lossStop')).toFixed(2)}. No new trades will be entered.`);
+   return true;
+ }
+ return false;
+}
+
+async function maybeTrade(){
+   if(lossPauseActive||warmupActive||marketChanging)return;
+if(!running||!sessionActive||!marketReady||!tradeReady||tradeRecoveryLock||active||entryPending||prices.length<30||lastSignalTick===prices.length-1)return;
+ lastSignalTick=prices.length-1;
+ entryPending=true;
+ signalChecks++;
+
+ if(trades>=n('maxTrades')){entryPending=false;running=false;sessionActive=false;stopConnectionWatchdog();status('COMPLETE');return}
+ if(checkSessionLimits())return;
+
+ const profile=entryThresholds();
+ if(samples.length<200){
+   entryPending=false;recordBlock('warmup');return;
+ }
+
+ const p=predict(),prob=Math.max(p.pUp,p.pDown);
+ if(prob<profile.minProb){
+   entryPending=false;recordBlock('prob');return;
+ }
+ if(prob>profile.maxProb){
+   entryPending=false;recordBlock('highprob');return;
+ }
+ if(Math.abs(p.pUp-p.pDown)<profile.minGap){
+   entryPending=false;recordBlock('gap');return;
+ }
+ const neededNeighbors=Math.min(10,Math.max(3,Math.floor(n('k'))));
+ if(p.neighbors<neededNeighbors){
+   entryPending=false;recordBlock('neighbors');return;
+ }
+ if(p.neighborAgreement<profile.agreement){
+   entryPending=false;recordBlock('agreement');return;
+ }
+ if(p.medianDistance>profile.maxDist){
+   entryPending=false;recordBlock('distance');return;
+ }
+
+ signalQualified++;
+ const dir=p.dir,type=dir==='RISE'?'CALL':'PUT';
+ try{
+  const baseStake=normalizeStake(Math.max(.35,n('stake')));
+  // Get the current proposal first. This gives us the live payout.
+  const probe=await send(trade,tp,{
+    proposal:1,amount:baseStake,basis:'stake',contract_type:type,currency:'USD',
+    duration:Math.max(1,Math.floor(n('duration'))),duration_unit:'t',
+    underlying_symbol:sym()
+  },'trade');
+
+  const probeAsk=Number(probe.proposal?.ask_price);
+  const probePay=Number(probe.proposal?.payout);
+  const probePid=probe.proposal?.id;
+  if(!probePid||!Number.isFinite(probeAsk)||!Number.isFinite(probePay))
+    throw new Error('Invalid proposal returned for Rise/Fall');
+
+  const payoutPct=(probePay-probeAsk)/probeAsk*100;
+  if(payoutPct<n('minPayout')){
+    entryPending=false;recordBlock('payout');
+    log(`${dir} signal qualified but payout ${payoutPct.toFixed(1)}% is below ${n('minPayout').toFixed(1)}%.`);
+    return;
+  }
+
+  let stake=nextStake(payoutPct);
+  log(`QUALIFIED ${dir} | payout ${payoutPct.toFixed(1)}% | ${nextPlannedStakeText(payoutPct)}`);
+  const pr=await send(trade,tp,{
+    proposal:1,amount:normalizeStake(stake),basis:'stake',contract_type:type,currency:'USD',
+    duration:Math.max(1,Math.floor(n('duration'))),duration_unit:'t',
+    underlying_symbol:sym()
+  },'trade');
+
+  const ask=Number(pr.proposal?.ask_price),pay=Number(pr.proposal?.payout),pid=pr.proposal?.id;
+  if(!pid||!Number.isFinite(ask)||!Number.isFinite(pay))throw new Error('Invalid recovery proposal');
+
+  const actualPayoutPct=(pay-ask)/ask*100;
+  if(actualPayoutPct<n('minPayout')){
+    entryPending=false;recordBlock('payout');
+    log(`${dir} recovery proposal payout ${actualPayoutPct.toFixed(1)}% is below ${n('minPayout').toFixed(1)}%.`);
+    return;
+  }
+
+  active={
+    dir,type,prob,
+    rawProb:p.pUp>=.5?p.rawPUp:1-p.rawPUp,
+    calProb:p.calibratedCandidate,
+    gap:p.gap,neighbors:p.neighbors,
+    neighborAgreement:p.neighborAgreement,medianDistance:p.medianDistance,
+    features:p.features,stake:normalizeStake(ask),payoutPct:actualPayoutPct,
+    entry:prices.at(-1),id:null,mgStep,mgLossPool
+  };
+
+  status(`BUY ${dir} | MG ${mgStep}`);
+  uncertainBuy=true;
+  const b=await send(trade,tp,{buy:pid,price:normalizeStake(ask)},'trade');
+  const cid=Number(b.buy?.contract_id);
+  if(!cid)throw new Error('No contract ID from buy');
+
+  active.id=cid;entryPending=false;uncertainBuy=false;
+  trade.send(JSON.stringify({
+    proposal_open_contract:1,contract_id:cid,subscribe:1,req_id:tradeReq++
+  }));
+
+  log(`BOUGHT ${dir} | final P=${(prob*100).toFixed(1)}% | raw=${((p.pUp>=.5?p.rawPUp:1-p.rawPUp)*100).toFixed(1)}% | cal=${(p.calibratedCandidate*100).toFixed(1)}% | gap=${(p.gap*100).toFixed(1)}% | agree=${(p.neighborAgreement*100).toFixed(1)}% | dist=${p.medianDistance.toFixed(2)} | ${nextPlannedStakeText(actualPayoutPct)} | actual stake $${ask.toFixed(2)} | payout ${actualPayoutPct.toFixed(1)}%`);
+ }catch(e){
+   entryPending=false;signalBlocked.error++;
+   log(`Trade error: ${e.message}`);
+   // If the failure occurred after buy was sent, uncertainty is handled on the
+   // next reconnect via portfolio reconciliation. Never submit a blind retry.
+   active=null;
+   if(uncertainBuy){
+     tradeRecoveryLock=true;
+     running=false;
+     status('POSITION RECONCILIATION');
+     if(tradeReady){
+       reconcileTradeState().catch(err=>log(`Immediate position reconciliation failed: ${err.message}`));
+     }
+   }else status('ERROR');
+ }
+}
+
+function contractUpdate(c){
+ if(!active||Number(c.contract_id)!==Number(active.id)||!c.is_sold)return;
+ const profit=Number(c.profit||0),exit=Number(c.exit_tick??c.exit_spot??NaN),won=profit>0;
+ trades++;if(won)wins++;else losses++;pnl+=profit;
+ const finishedStake=active.stake;
+ const settledMarket=sym();
+ recordMarketOutcome(settledMarket,won?'WIN':'LOSS');
+ if(won){
+   mgStep=0; mgLossPool=0;
+   consecutiveLosses=0;
+ }else if($('mgMode').value!=='off'){
+   mgLossPool += finishedStake;
+   mgStep++;
+   const maxStep=Math.max(0,Math.floor(n('mgMax')));
+   if(mgStep>maxStep){
+     log(`MARTINGALE LIMIT reached after loss. Resetting to base stake.`);
+     mgStep=0; mgLossPool=0;
+   }
+ }else{
+   mgStep=0; mgLossPool=0;
+ }
+ consecutiveLosses=won?0:consecutiveLosses+1;
+
+ records.unshift({num:trades,time:new Date().toLocaleTimeString(),market:settledMarket,dir:active.dir,prob:active.prob,rawProb:active.rawProb,gap:active.gap,neighbors:active.neighbors,neighborAgreement:active.neighborAgreement,medianDistance:active.medianDistance,DistanceSigma:active.features?.[0],SMASlopeSigma:active.features?.[1],Momentum1Sigma:active.features?.[2],Momentum3Sigma:active.features?.[3],Momentum5Sigma:active.features?.[4],AccelerationSigma:active.features?.[5],VolatilityRatio5:active.features?.[6],Persistence:active.features?.[7],Shock:active.features?.[8],stake:finishedStake,payout:active.payoutPct,entry:active.entry,exit,result:won?'WIN':'LOSS',profit,mgStepAfter:mgStep});
+ const r=records[0],tr=document.createElement('tr');tr.innerHTML=`<td>${r.num}</td><td>${r.time}</td><td>${r.market||sym()}</td><td>${r.dir}</td><td>${(r.prob*100).toFixed(1)}%</td><td>$${r.stake.toFixed(2)}</td><td>${r.payout.toFixed(1)}%</td><td>${r.entry}</td><td>${Number.isFinite(r.exit)?r.exit:'—'}</td><td class="${won?'good':'bad'}">${r.result}</td><td class="${won?'good':'bad'}">${profit>=0?'+':''}$${profit.toFixed(2)}</td>`;
+ $('rows').prepend(tr);log(`${won?'WIN':'LOSS'} ${active.dir} | P/L ${profit>=0?'+':''}$${profit.toFixed(2)} | session ${pnl>=0?'+':''}$${pnl.toFixed(2)}`);
+ active=null;entryPending=false;
+ updateMarketPerformanceUI();
+ if(!won&&consecutiveLosses>=2){
+   consecutiveLosses=2;
+   handleLossPauseAfterSettlement().catch(err=>log(`Loss-pause handler failed: ${err.message}`));
+   update();
+   return;
+ }
+ if(checkSessionLimits()){
+   // The settled trade has already closed, so there is no open position to carry.
+   // Do not allow another tick to create a new entry.
+   update();
+   return;
+ }
+ status(running?'RUNNING':'STOPPED');update();
+}
+function exportCSV(){
+ const head=['Trade','Time','Market','Direction','Probability','RawProbability','CalibratedProbability','Gap','Neighbors','NeighborAgreement','MedianDistance','DistanceSigma','SMASlopeSigma','Momentum1Sigma','Momentum3Sigma','Momentum5Sigma','AccelerationSigma','VolatilityRatio5','Persistence','Shock','Stake','PayoutPct','Entry','Exit','Result','Profit'];
+ const lines=[head.join(','),...records.slice().reverse().map(r=>[r.num,r.time,r.market||'',r.dir,r.prob,r.rawProb,r.calProb,r.gap,r.neighbors,r.neighborAgreement,r.medianDistance,r.DistanceSigma,r.SMASlopeSigma,r.Momentum1Sigma,r.Momentum3Sigma,r.Momentum5Sigma,r.AccelerationSigma,r.VolatilityRatio5,r.Persistence,r.Shock,r.stake,r.payout,r.entry,r.exit,r.result,r.profit].join(','))];
+ const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([lines.join('\n')],{type:'text/csv'}));a.download=`rise_fall_v1_${Date.now()}.csv`;a.click();URL.revokeObjectURL(a.href);
+}
+window.addEventListener('offline',()=>{
+  if(sessionActive){
+    status('OFFLINE — RECONNECTING');
+    log('Browser/network reported OFFLINE. Automatic reconnect will resume when the connection returns.');
+  }
+});
+window.addEventListener('online',()=>{
+  if(sessionActive&&!manualDisconnect){
+    log('Browser/network ONLINE. Forcing connection health checks.');
+    scheduleMarketReconnect();
+    scheduleTradeReconnect();
+  }
+});
+
+$('connect').onclick=()=>connect().catch(e=>{running=false;sessionActive=false;status('ERROR');updateConnectionUI();log(`CONNECT FAILED: ${e.message}`)});
+$('start').onclick=()=>{
+ if(!tradeReady||!marketReady){log('Connect first and wait for both Market link and Trade link to show LIVE.');return}
+ if(tradeRecoveryLock){log('Trading is paused for connection/position reconciliation.');return}
+ signalChecks=0;signalQualified=0;signalBlocked={warmup:0,prob:0,highprob:0,gap:0,neighbors:0,agreement:0,distance:0,payout:0,error:0};
+
+ if($('preStartWarmup')?.value==='on'){
+   startPreStartWarmup().catch(e=>{
+     warmupActive=false;running=false;sessionActive=false;status('WARM-UP ERROR');
+     log(`PRE-START WARM-UP FAILED: ${e.message}`);updateWarmupUI();
+   });
+   return;
+ }
+
+ sessionActive=true;running=true;lossPauseActive=false;consecutiveLosses=0;startConnectionWatchdog();status('RUNNING');
+ log(`Bot started. Profile=${$('entryProfile')?.value||'balanced'} | Range=${(n('minProb')*100).toFixed(0)}–${(n('maxProb')*100).toFixed(0)}% | Session target=+$${n('profitTarget').toFixed(2)} | Recovery target=+$${n('mgTarget').toFixed(2)} | Loss stop=-$${n('lossStop').toFixed(2)} | Martingale=${$('mgMode').value}, factor=${n('mgFactor').toFixed(1)}, max steps=${Math.floor(n('mgMax'))}, cap=$${n('mgMaxStake').toFixed(2)}. Direction remains model-selected.`)
+};
+$('stop').onclick=()=>{
+ running=false;entryPending=false;sessionActive=false;warmupActive=false;warmupActiveTrade=null;stopConnectionWatchdog();
+ status(active?'STOP AFTER ACTIVE':'STOPPED');updateWarmupUI();
+ log('Stop requested. Current trade/warm-up paper position will finish; no new entries will be opened.')
+};
+$('export').onclick=exportCSV;
+['duration','lookback','maxSamples'].forEach(id=>$(id).addEventListener('change',()=>{if(prices.length)rebuildSamples()}));
+['profitTarget','lossStop'].forEach(id=>$(id).addEventListener('change',update));
+['stake','mgMode','mgFactor','mgMax','mgMaxStake','mgTarget'].forEach(id=>$(id).addEventListener('input',()=>{updateLadderPreview();update()}));
+updateLadderPreview();
+loadMarketPerformance(); updateMarketPerformanceUI(); update();
+updateConnectionUI();
+setInterval(updateConnectionUI,1000);
+startConnectionWatchdog();
+})();
+</script></body></html>
